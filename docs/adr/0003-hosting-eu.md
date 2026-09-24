@@ -1,6 +1,6 @@
 # ADR-0003 — EU hosting and infrastructure
 
-- Status: **Proposed** (Boris + Finance, DEC-07)
+- Status: **Accepted** by Boris (Head of Tech), 24 Sep 2026. Items that also need Finance or other owners stay open in 07 (for example DEC-07 hosting cost, DEC-06 IdP facts)
 - Date: 2026-09-24
 
 ## Context

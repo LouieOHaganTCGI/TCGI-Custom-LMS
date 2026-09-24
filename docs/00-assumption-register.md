@@ -60,3 +60,37 @@ The following have **not** been invented anywhere in these docs. Each shows as a
 - Guarantees that migrated progress will resume. The spike (06) establishes whether this is feasible.
 - The HubSpot object model and field names, and the Accredible issuance policy.
 - Whether Rustici SCORM Cloud and Rustici Engine can be hosted in the EU, and what they cost. Both need a vendor quote.
+
+## E. Reconciliation with Functional Specification v3.0 (29 Jul 2026), received 24 Sep 2026
+
+The functional spec was written for **vendor (SaaS) evaluation**. The build brief (24 Sep 2026) is later and deliberately narrows it for an owned MVP. **The brief stays the requirement baseline.** Where the spec adds detail that fits the brief, it's adopted as acceptance detail. Where it conflicts with the brief, it's listed here.
+
+| ID | Spec says | Brief says | Handling | Resolves via |
+|---|---|---|---|---|
+| C-13 | Go-live on **1 Jan 2027**. The Brightspace "non-renewal notice meeting" was in the week of 21 Jul 2026 | Keep Brightspace as a bridge. Pilot and migrate in Q3 2027 | **Urgent.** If non-renewal notice was already given, securing an extension may be harder or dearer. Confirm what was said in July | DEC-01 |
+| C-14 | Native e-commerce, multi-currency, Stripe, instalments, coupons, bundles (§3.10, "Must", aspirational) | Commerce stays in WooCommerce and Stripe. The LMS only consumes entitlement events | Follow the brief. The event contract (04) keeps a later native-commerce module possible without rewriting delivery | — |
+| C-15 | AI recommendations, semantic search, AI authoring (§3.4) | Out of scope | Follow the brief | — |
+| C-16 | Enterprise admins create and modify **custom learning paths in their tenant**, with a drag-and-drop builder (§3.2) | Client-created pathways are P2 (ENT-05) | A new decision: is it needed for the five launch clients? | **DEC-35** |
+| C-17 | Fixed-seat, **floating-seat and consumption** licences (§3.6) | Don't invent a floating or consumption engine unless an existing contract needs it (ENT-04) | Model only what the five contracts contain | DEC-12, DEC-32 |
+| C-18 | Directional budget of **€22–25k per year** for a SaaS platform (§2.3) | €150k–€350k external build, plus TCO | The build-vs-buy comparison must set build TCO (hosting, support, on-call, licences) against this figure | DEC-02 |
+| C-19 | Scalable to **25,000+ learners**, page load under 2 s, global CDN (§5) | Measure speed at agreed concurrency. EU hosting | 25,000 learners is taken as the load-test sizing input. Global CDN only for non-personal static assets (A-11) | DEC-21 |
+| C-20 | **All 152 enterprise seats are in progress.** None have completed their pathway. B2C extensions run into Jan–Mar 2027 (§4) | Migrate active learners subject to a continuity plan | Every enterprise learner is in scope for the migration spike, not a sample | DEC-28 |
+| C-21 | Content will be **restructured**, not migrated like-for-like (§4) | Resuming suspend data needs the identical package build (06, H2) | **For restructured courses, granular SCORM resume is likely impossible by design.** Migration there means transferring completed units or finishing on Brightspace, not injecting suspend data. The spike must test which courses are unchanged | DEC-04, DEC-28 |
+| C-22 | **Anthony** is the final sign-off authority (§6) | Not mentioned | Added to DEC-00 for the budget and go/no-go gates | DEC-00 |
+
+Spec detail adopted as acceptance criteria:
+- Cohort rules for open, fixed-window and rolling enrolment, and cohort duplication in 3 clicks or fewer (LRN-03, §3.6–3.7).
+- Adjusting an individual learner's completion date, with an audit trail (OPS-03, §8).
+- Near-real-time reporting (OPS-02, §8 "data freshness").
+- A fully responsive mobile web experience, a **Must** (LRN-02, Andre's review comment).
+- CPD by calendar year, and a branded PDF transcript (LRN-05, LRN-06).
+- Two isolated branded tenants in one instance (ID-05).
+
+## F. Findings from the Phase B build (24 Sep 2026)
+
+| ID | Finding | Consequence | Resolves via |
+|---|---|---|---|
+| F-01 | Many OIDC providers put `email` and `name` in **userinfo**, not the ID token | The RP now fetches userinfo with a subject check. Confirm which miniOrange uses | DEC-06 |
+| F-02 | LMS sign-out doesn't end the IdP's SSO session. Signing in again reuses it silently | A shared-device risk. The LMS now revokes open lesson tokens on sign-out. Single logout needs IdP support | DEC-06 |
+| F-03 | scorm-again sends the **terminate commit via `sendBeacon`** (`text/plain` by default) | Rejecting it would lose final progress. It's now accepted, and this must be re-tested on real mobile devices (R8) | DEC-13 evidence |
+| F-04 | SCORM scores are learner-reported, and the UI now labels them as such | Reinforces C-04 | DEC-15 |

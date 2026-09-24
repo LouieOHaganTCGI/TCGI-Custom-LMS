@@ -1,6 +1,6 @@
 # ADR-0002 — SCORM runtime and launch architecture
 
-- Status: **Proposed. The decision is deferred until D2 PoC evidence exists** (Boris + Finance, DEC-13)
+- Status: **Method accepted** (Boris, 24 Sep 2026). The runtime *selection* stays open until real-package evidence exists (DEC-13). Phase B builds the `ScormRuntimeProvider` port with Option 3 (`scorm-again`) as the first evaluated adapter. That is not a final selection
 - Date: 2026-09-24
 
 ## Context

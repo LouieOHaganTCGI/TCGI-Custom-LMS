@@ -1,6 +1,6 @@
 # ADR-0005 — Identity federation with miniOrange
 
-- Status: **Proposed. Blocked on IdP facts** (Boris, DEC-06)
+- Status: **Accepted** by Boris (Head of Tech), 24 Sep 2026. Items that also need Finance or other owners stay open in 07 (for example DEC-07 hosting cost, DEC-06 IdP facts)
 - Date: 2026-09-24
 
 ## Context
