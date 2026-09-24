@@ -37,7 +37,10 @@ async function main() {
     clientId: config.OIDC_CLIENT_ID,
     clientSecret: config.OIDC_CLIENT_SECRET,
     redirectUris: [new URL("/auth/callback", config.APP_BASE_URL).href],
-    users: SYNTHETIC_PEOPLE.map((p) => ({ sub: p.key, name: p.name, email: p.email })),
+    // Plus IdP-only users with NO LMS account, for invitation demos (they are linked when they accept).
+    users: [...SYNTHETIC_PEOPLE.map((p) => ({ sub: p.key, name: p.name, email: p.email })),
+      { sub: "new-starter-1", name: "Grace Newstarter", email: "grace.newstarter@example.test" },
+      { sub: "new-starter-2", name: "Hugh Newstarter", email: "hugh.newstarter@example.test" }],
   });
   const stub = await startHubSpotStub({ port: PORTS.stub, secret: config.OUTBOUND_SIGNING_SECRET });
   const services = createServices(config);

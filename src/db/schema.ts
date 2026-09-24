@@ -40,7 +40,7 @@ export interface OrganisationMembershipTable {
   id: Generated<string>;
   organisation_id: string;
   person_id: string;
-  status: Generated<"active" | "ended">;
+  status: Generated<"invited" | "active" | "ended">;
   source: string;
   started_at: Generated<Date>;
   ended_at: NullableTimestamp;
@@ -80,6 +80,7 @@ export interface AuthRequestTable {
   code_verifier: string;
   return_to: string;
   expires_at: Timestamp;
+  invite_token_hash: string | null;
 }
 
 export interface ContentItemTable {
@@ -117,6 +118,8 @@ export interface CourseTable {
   tier: CourseTier;
   status: Generated<"active" | "retired">;
   created_at: Generated<Date>;
+  cpd_value: Numeric;
+  cpd_unit: string | null;
 }
 
 export interface CourseRevisionTable {
@@ -297,7 +300,87 @@ export interface AuditEntryTable {
   entry_hash: ColumnType<string, string | undefined, never>;
 }
 
+export interface IntegrationEventTable {
+  id: Generated<string>;
+  source: string;
+  idempotency_key: string;
+  envelope_id: string;
+  event_type: string;
+  schema_version: string;
+  aggregate_id: string;
+  effective_at: Timestamp;
+  source_sequence: ColumnType<string | null, number | string | null, number | string | null>;
+  payload: Json;
+  payload_sha256: string;
+  received_at: Generated<Date>;
+  status: Generated<"received" | "processed" | "held">;
+  status_reason: string | null;
+  processed_at: NullableTimestamp;
+  entitlement_id: string | null;
+}
+
+export interface AgreementTable {
+  id: Generated<string>;
+  organisation_id: string;
+  reference: string;
+  seat_limit: number;
+  access_start: Timestamp;
+  access_end: Timestamp;
+  status: Generated<"active" | "ended">;
+  created_by: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface AgreementCourseTable {
+  agreement_id: string;
+  course_id: string;
+}
+
+export interface SeatAllocationTable {
+  id: Generated<string>;
+  organisation_id: string;
+  agreement_id: string;
+  person_id: string;
+  state: Generated<"allocated" | "released">;
+  allocated_by: string | null;
+  allocated_at: Generated<Date>;
+  released_by: string | null;
+  released_at: NullableTimestamp;
+  release_reason: string | null;
+}
+
+export interface InvitationTable {
+  id: Generated<string>;
+  organisation_id: string;
+  person_id: string;
+  token_hash: string;
+  invited_by: string | null;
+  created_at: Generated<Date>;
+  expires_at: Timestamp;
+  accepted_at: NullableTimestamp;
+  revoked_at: NullableTimestamp;
+}
+
+export interface CpdAwardTable {
+  id: Generated<string>;
+  organisation_id: string;
+  person_id: string;
+  enrolment_id: string;
+  course_id: string;
+  value: ColumnType<string, number | string, never>;
+  unit: string;
+  source_type: "course_completion";
+  source_id: string;
+  awarded_at: Generated<Date>;
+}
+
 export interface Database {
+  integration_event: IntegrationEventTable;
+  agreement: AgreementTable;
+  agreement_course: AgreementCourseTable;
+  seat_allocation: SeatAllocationTable;
+  invitation: InvitationTable;
+  cpd_award: CpdAwardTable;
   organisation: OrganisationTable;
   person: PersonTable;
   identity_link: IdentityLinkTable;

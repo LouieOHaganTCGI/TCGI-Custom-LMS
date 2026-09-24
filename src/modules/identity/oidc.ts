@@ -43,7 +43,7 @@ export class OidcRelyingParty {
   }
 
   /** Start a login. Returns the IdP redirect URL and the opaque cookie value that binds the browser to this request. */
-  async begin(returnTo: string, now = new Date()): Promise<{ redirectUrl: string; requestCookie: string }> {
+  async begin(returnTo: string, now = new Date(), inviteToken: string | null = null): Promise<{ redirectUrl: string; requestCookie: string }> {
     const config = await this.config();
     const requestCookie = randomToken(32);
     const state = client.randomState();
@@ -52,7 +52,8 @@ export class OidcRelyingParty {
     await this.db.withSystem("authn", (trx) =>
       trx
         .insertInto("auth_request")
-        .values({ id: sha256Hex(requestCookie), state, nonce, code_verifier: codeVerifier, return_to: returnTo, expires_at: new Date(now.getTime() + 10 * 60_000) })
+        .values({ id: sha256Hex(requestCookie), state, nonce, code_verifier: codeVerifier, return_to: returnTo, expires_at: new Date(now.getTime() + 10 * 60_000),
+          invite_token_hash: inviteToken && inviteToken.length <= 128 ? sha256Hex(inviteToken) : null })
         .execute(),
     );
     const url = client.buildAuthorizationUrl(config, {
@@ -71,7 +72,7 @@ export class OidcRelyingParty {
    * Complete a login. The stored request is consumed (deleted) before the code exchange, so a replayed
    * callback always fails.
    */
-  async complete(requestCookie: string | undefined, callbackUrl: URL, now = new Date()): Promise<{ claims: VerifiedClaims; returnTo: string }> {
+  async complete(requestCookie: string | undefined, callbackUrl: URL, now = new Date()): Promise<{ claims: VerifiedClaims; returnTo: string; inviteTokenHash: string | null }> {
     if (!requestCookie) throw new OidcError("missing_login_request");
     const req = await this.db.withSystem("authn", (trx) =>
       trx.deleteFrom("auth_request").where("id", "=", sha256Hex(requestCookie)).returningAll().executeTakeFirst(),
@@ -112,6 +113,7 @@ export class OidcRelyingParty {
         name: typeof attrs.name === "string" ? attrs.name : null,
       },
       returnTo: req.return_to,
+      inviteTokenHash: req.invite_token_hash,
     };
   }
 }

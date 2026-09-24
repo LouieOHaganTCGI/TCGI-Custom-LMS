@@ -20,6 +20,7 @@ export async function startLms(config: Config, services = createServices(config)
     loop = (async () => {
       while (!stopped) {
         const n = await services.dispatcher.runOnce(50).catch((e) => (app.log.error({ err: e }, "outbox dispatch failed"), 0));
+        await services.entitlementEvents.processPending().catch((e) => app.log.error({ err: e }, "entitlement event processing failed"));
         if (n === 0) await new Promise((r) => setTimeout(r, config.WORKER_POLL_MS));
       }
     })();

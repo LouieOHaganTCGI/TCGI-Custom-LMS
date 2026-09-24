@@ -10,6 +10,7 @@ RUN --mount=type=secret,id=extra_ca,required=false NODE_EXTRA_CA_CERTS=/run/secr
 COPY tsconfig.json tsconfig.build.json ./
 COPY scripts/copy-assets.mjs scripts/
 COPY src src
+COPY docs/contracts docs/contracts
 RUN npm run build
 
 FROM ${NODE_IMAGE} AS runtime

@@ -51,6 +51,7 @@ async function main() {
         process.on("SIGINT", () => (stop = true));
         while (!stop) {
           const n = await services.dispatcher.runOnce(50).catch((e) => (console.error("dispatch error", e), 0));
+          await services.entitlementEvents.processPending().catch((e) => console.error("entitlement processing error", e));
           if (n === 0) await new Promise((r) => setTimeout(r, config.WORKER_POLL_MS));
         }
         break;

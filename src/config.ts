@@ -51,6 +51,19 @@ const schema = z
     WORKER_POLL_MS: z.coerce.number().int().positive().default(2000),
     /** Run the outbox dispatcher inside the web process (dev/single-node). Production runs `cli worker` separately. */
     RUN_WORKER: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
+    /**
+     * Inbound signed-event sources and their HMAC keys (docs/04 §1), as JSON:
+     * {"woocommerce:tcgi-store-staging": {"keys": {"k1": "<secret ≥ 32 chars>"}}}. Two keys allow rotation.
+     */
+    INBOUND_SOURCES: z.string().default("{}").transform((v, ctx) => {
+      try {
+        const parsed = z.record(z.string().regex(/^[a-z0-9-]+:[a-z0-9-]+$/), z.object({ keys: z.record(z.string().min(1), z.string().min(32)) })).parse(JSON.parse(v));
+        return parsed;
+      } catch (e) {
+        ctx.addIssue({ code: "custom", message: `INBOUND_SOURCES must be valid JSON: ${(e as Error).message.slice(0, 200)}` });
+        return z.NEVER;
+      }
+    }),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   })
   .superRefine((c, ctx) => {

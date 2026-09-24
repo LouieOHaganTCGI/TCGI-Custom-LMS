@@ -26,8 +26,8 @@ class Jar {
 }
 
 /** Drive the browser leg: app /auth/login → IdP authorize → choose user → back to app /auth/callback. */
-async function signIn(user: string, returnTo = "/learn") {
-  const start = await h.app.inject({ method: "GET", url: `/auth/login?return_to=${encodeURIComponent(returnTo)}` });
+async function signIn(user: string, returnTo = "/learn", invite?: string) {
+  const start = await h.app.inject({ method: "GET", url: `/auth/login?return_to=${encodeURIComponent(returnTo)}${invite ? `&invite=${encodeURIComponent(invite)}` : ""}` });
   expect(start.statusCode).toBe(302);
   const authCookie = cookieFrom(start.headers["set-cookie"], "lms_auth")!;
   const jar = new Jar();
@@ -84,7 +84,7 @@ describe("OIDC sign-in (ID-01)", () => {
     expect(setCookie).toMatch(/SameSite=Lax/i);
     const learn = await h.app.inject({ method: "GET", url: "/learn", headers: { cookie: setCookie.split(";")[0]! } });
     expect(learn.statusCode).toBe(200);
-    expect(learn.body).toContain("Brian Synthetic");
+    expect(learn.body).toContain("Welcome back, Brian");
     const [a] = await ownerQuery<{ action: string; entity_id: string }>("select action, entity_id from audit_entry where action='auth.login'");
     expect(a!.entity_id).toBe(h.data.people["learner-ent-a-1"]);
   });
@@ -166,5 +166,66 @@ describe("self-registration (DEC-06, default off)", () => {
     const [link] = await ownerQuery<{ linked_via: string; person_id: string }>("select linked_via, person_id from identity_link where subject='stranger-1'");
     expect(link!.linked_via).toBe("self_registration");
     expect(link!.person_id).not.toBe(h.data.people["learner-b2c-1"]); // same email, still a different person
+  });
+});
+
+describe("invitations (ID-03): linking by invite token plus IdP identity, never by email", () => {
+  async function createInvite(name: string, email: string) {
+    const mgr = await h.loginAs("manager-ent-a-1");
+    const r = await h.app.inject({ method: "POST", url: `/manage/orgs/${h.data.orgs["synthetic-enterprise-a"]}/invitations`,
+      headers: { cookie: mgr.cookie, "content-type": "application/x-www-form-urlencoded" }, payload: new URLSearchParams({ _csrf: mgr.csrf, name, email }).toString() });
+    expect(r.statusCode).toBe(201);
+    const token = /\/invite\/([A-Za-z0-9_-]{20,})/.exec(r.body)![1]!;
+    const [p] = await ownerQuery<{ id: string }>("select id from person where display_name=$1", [name]);
+    return { token, placeholderId: p!.id, mgr };
+  }
+
+  it("a new learner accepts: the invited person gets the IdP identity and becomes an active member", async () => {
+    idp.users.set("invitee-new-1", { sub: "invitee-new-1", name: "Fiona Invitee", email: "fiona.personal@example.test" });
+    const { token, placeholderId } = await createInvite("Fiona Invitee", "fiona.work@example.test");
+    const landing = await h.app.inject({ method: "GET", url: `/invite/${token}` });
+    expect(landing.statusCode).toBe(200);
+    expect(landing.body).toContain("Synthetic Enterprise A");
+    const { authCookie, callbackPath } = await signIn("invitee-new-1", "/learn?flash=invite-accepted", token);
+    const res = await complete(authCookie, callbackPath);
+    expect(res.statusCode).toBe(303);
+    const [link] = await ownerQuery<{ person_id: string; linked_via: string }>("select person_id, linked_via from identity_link where subject='invitee-new-1'");
+    expect(link).toEqual({ person_id: placeholderId, linked_via: "invitation" });
+    const [m] = await ownerQuery<{ status: string }>("select status from organisation_membership where person_id=$1", [placeholderId]);
+    expect(m!.status).toBe("active");
+    // Single use: the same link can't be accepted again.
+    expect((await h.app.inject({ method: "GET", url: `/invite/${token}` })).statusCode).toBe(404);
+    idp.users.set("invitee-new-2", { sub: "invitee-new-2", name: "Someone Else", email: "fiona.work@example.test" });
+    const again = await signIn("invitee-new-2", "/learn", token);
+    const r2 = await complete(again.authCookie, again.callbackPath);
+    expect(r2.statusCode).toBe(403);
+    expect(r2.body).toContain("expired or has already been used");
+  });
+
+  it("an existing B2C learner accepts: the placeholder merges into their account, with no duplicate person, and the seat moves with it", async () => {
+    const { token, placeholderId, mgr } = await createInvite("Aoife at Work", "aoife.work@example.test");
+    const course = h.data.courses["synthetic-course-scorm12"]!;
+    const assign = await h.app.inject({ method: "POST", url: `/manage/orgs/${h.data.orgs["synthetic-enterprise-a"]}/assignments`,
+      headers: { cookie: mgr.cookie, "content-type": "application/x-www-form-urlencoded" }, payload: new URLSearchParams({ _csrf: mgr.csrf, person_id: placeholderId, course_id: course }).toString() });
+    expect(assign.statusCode).toBe(303);
+    const aoife = h.data.people["learner-b2c-1"]!;
+    const { authCookie, callbackPath } = await signIn("learner-b2c-1", "/learn", token);
+    expect((await complete(authCookie, callbackPath)).statusCode).toBe(303);
+    const [m] = await ownerQuery<{ status: string }>("select status from organisation_membership where person_id=$1 and organisation_id=$2", [aoife, h.data.orgs["synthetic-enterprise-a"]]);
+    expect(m!.status).toBe("active");
+    const [seat] = await ownerQuery<{ person_id: string }>("select person_id from seat_allocation where state='allocated' and person_id in ($1,$2)", [aoife, placeholderId]);
+    expect(seat!.person_id).toBe(aoife);
+    const ents = await ownerQuery<{ person_id: string; status: string }>("select person_id, status from entitlement where grant_type='seat' and course_id=$1 and person_id in ($2,$3)", [course, aoife, placeholderId]);
+    expect(ents).toEqual([{ person_id: aoife, status: "active" }]);
+    const [ph] = await ownerQuery<{ status: string }>("select status from person where id=$1", [placeholderId]);
+    expect(ph!.status).toBe("deactivated");
+    expect(await ownerQuery("select 1 from identity_link where subject='learner-b2c-1'")).toHaveLength(1);
+    const [a] = await ownerQuery<{ after: { merged_placeholder: string } }>("select after from audit_entry where action='invitation.accepted' order by id desc limit 1");
+    expect(a!.after.merged_placeholder).toBe(placeholderId);
+  });
+
+  it("an unknown subject with no valid invite is still denied (no email matching)", async () => {
+    const { authCookie, callbackPath } = await signIn("stranger-1", "/learn", "not-a-real-token");
+    expect((await complete(authCookie, callbackPath)).statusCode).toBe(403);
   });
 });

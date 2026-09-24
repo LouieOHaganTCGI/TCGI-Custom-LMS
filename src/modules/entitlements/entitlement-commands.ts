@@ -1,4 +1,4 @@
-import type { ScopedDb } from "../../db/scoped.js";
+import type { ScopedDb, Trx } from "../../db/scoped.js";
 import { audit, type Actor } from "../audit/audit.js";
 import { RuleViolation } from "../authz/authz.js";
 
@@ -33,74 +33,81 @@ export class EntitlementCommands {
 
   async grant(cmd: GrantEntitlementCommand, actor: Actor, requestId: string | null = null): Promise<GrantResult> {
     if (cmd.validUntil && cmd.validUntil <= cmd.validFrom) throw new RuleViolation("validUntil must be after validFrom", "bad_window");
-    return this.db.withSystem("entitlement-command", async (trx) => {
-      const existing = await trx
-        .selectFrom("entitlement")
-        .selectAll()
-        .where("source", "=", cmd.source)
-        .where("external_order_id", "=", cmd.externalOrderId)
-        .where("external_line_id", "=", cmd.externalLineId)
-        .forUpdate()
-        .executeTakeFirst();
-      const terms = {
-        person_id: cmd.personId,
-        organisation_id: cmd.organisationId,
-        course_id: cmd.courseId,
-        grant_type: cmd.grantType,
-        status: "active" as const,
-        valid_from: cmd.validFrom.toISOString(),
-        valid_until: cmd.validUntil?.toISOString() ?? null,
-      };
-      if (existing) {
-        const same =
-          existing.person_id === terms.person_id && existing.organisation_id === terms.organisation_id && existing.course_id === terms.course_id &&
-          existing.grant_type === terms.grant_type && existing.status === "active" && existing.valid_from.toISOString() === terms.valid_from &&
-          (existing.valid_until?.toISOString() ?? null) === terms.valid_until;
-        if (same) return { entitlementId: existing.id, outcome: "no_change" as const };
-        throw new RuleViolation("conflicting grant for an existing order line; changes must arrive as events (S4)", "conflicting_grant");
-      }
-      const membership = await trx
-        .selectFrom("organisation_membership")
-        .select("id")
-        .where("organisation_id", "=", cmd.organisationId)
-        .where("person_id", "=", cmd.personId)
-        .where("status", "=", "active")
-        .executeTakeFirst();
-      if (!membership) throw new RuleViolation("person is not an active member of the licensing organisation", "not_member");
-
-      const ent = await trx
-        .insertInto("entitlement")
-        .values({
-          ...terms,
-          source: cmd.source,
-          external_order_id: cmd.externalOrderId,
-          external_line_id: cmd.externalLineId,
-          updated_at: new Date(),
-        })
-        .returning("id")
-        .executeTakeFirstOrThrow();
-      await trx
-        .insertInto("entitlement_decision")
-        .values({
-          organisation_id: cmd.organisationId,
-          entitlement_id: ent.id,
-          input_ref: JSON.stringify({ source: cmd.source, order: cmd.externalOrderId, line: cmd.externalLineId, reason: cmd.reason }),
-          rule_version: "grant/v0-fixture",
-          before: null,
-          after: JSON.stringify(terms),
-        })
-        .execute();
-      await audit(trx, {
-        actor,
-        action: "entitlement.granted",
-        entityType: "entitlement",
-        entityId: ent.id,
-        organisationId: cmd.organisationId,
-        after: { ...terms, source: cmd.source },
-        reason: cmd.reason,
-        requestId,
-      });
-      return { entitlementId: ent.id, outcome: "created" as const };
-    });
+    return this.db.withSystem("entitlement-command", (trx) => grantInTrx(trx, cmd, actor, requestId));
   }
+}
+
+/**
+ * The grant logic, inside the caller's transaction. Used by the system command above, and by the manager seat
+ * flow, which runs in the manager's RLS scope (RLS then only allows seat grants for organisations they manage).
+ */
+export async function grantInTrx(trx: Trx, cmd: GrantEntitlementCommand, actor: Actor, requestId: string | null = null, ruleVersion = "grant/v0-fixture"): Promise<GrantResult> {
+  if (cmd.validUntil && cmd.validUntil <= cmd.validFrom) throw new RuleViolation("validUntil must be after validFrom", "bad_window");
+  const existing = await trx
+    .selectFrom("entitlement")
+    .selectAll()
+    .where("source", "=", cmd.source)
+    .where("external_order_id", "=", cmd.externalOrderId)
+    .where("external_line_id", "=", cmd.externalLineId)
+    .forUpdate()
+    .executeTakeFirst();
+  const terms = {
+    person_id: cmd.personId,
+    organisation_id: cmd.organisationId,
+    course_id: cmd.courseId,
+    grant_type: cmd.grantType,
+    status: "active" as const,
+    valid_from: cmd.validFrom.toISOString(),
+    valid_until: cmd.validUntil?.toISOString() ?? null,
+  };
+  if (existing) {
+    const same =
+      existing.person_id === terms.person_id && existing.organisation_id === terms.organisation_id && existing.course_id === terms.course_id &&
+      existing.grant_type === terms.grant_type && existing.status === "active" && existing.valid_from.toISOString() === terms.valid_from &&
+      (existing.valid_until?.toISOString() ?? null) === terms.valid_until;
+    if (same) return { entitlementId: existing.id, outcome: "no_change" as const };
+    throw new RuleViolation("conflicting grant for an existing order line; changes must arrive as events (S4)", "conflicting_grant");
+  }
+  const membership = await trx
+    .selectFrom("organisation_membership")
+    .select("id")
+    .where("organisation_id", "=", cmd.organisationId)
+    .where("person_id", "=", cmd.personId)
+    .where("status", "in", ["active", "invited"]) // invited members can be assigned courses before they accept
+    .executeTakeFirst();
+  if (!membership) throw new RuleViolation("person is not an active member of the licensing organisation", "not_member");
+
+  const ent = await trx
+    .insertInto("entitlement")
+    .values({
+      ...terms,
+      source: cmd.source,
+      external_order_id: cmd.externalOrderId,
+      external_line_id: cmd.externalLineId,
+      updated_at: new Date(),
+    })
+    .returning("id")
+    .executeTakeFirstOrThrow();
+  await trx
+    .insertInto("entitlement_decision")
+    .values({
+      organisation_id: cmd.organisationId,
+      entitlement_id: ent.id,
+      input_ref: JSON.stringify({ source: cmd.source, order: cmd.externalOrderId, line: cmd.externalLineId, reason: cmd.reason }),
+      rule_version: ruleVersion,
+      before: null,
+      after: JSON.stringify(terms),
+    })
+    .execute();
+  await audit(trx, {
+    actor,
+    action: "entitlement.granted",
+    entityType: "entitlement",
+    entityId: ent.id,
+    organisationId: cmd.organisationId,
+    after: { ...terms, source: cmd.source },
+    reason: cmd.reason,
+    requestId,
+  });
+  return { entitlementId: ent.id, outcome: "created" as const };
 }

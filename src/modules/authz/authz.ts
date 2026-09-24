@@ -12,15 +12,19 @@ export const CAPABILITIES = [
   "integration.replay",
   "content.import",
   "course.publish",
+  "org.admin",
+  "entitlement.admin",
   "enrolment.read.org",
+  "org.manage",
+  "report.export.org",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
 const PLATFORM_ROLE_CAPS: Record<Extract<Role, "tcgi_admin">, Capability[]> = {
-  tcgi_admin: ["audit.read", "integration.read", "integration.replay", "content.import", "course.publish"],
+  tcgi_admin: ["audit.read", "integration.read", "integration.replay", "content.import", "course.publish", "org.admin", "entitlement.admin"],
 };
 const ORG_ROLE_CAPS: Record<Extract<Role, "enterprise_manager">, Capability[]> = {
-  enterprise_manager: ["enrolment.read.org"],
+  enterprise_manager: ["enrolment.read.org", "org.manage", "report.export.org"],
 };
 
 export interface AuthzContext {

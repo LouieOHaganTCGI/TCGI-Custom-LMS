@@ -10,7 +10,7 @@ import { signIn } from "./helpers.js";
 async function audit(page: Page, label: string) {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const serious = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-  expect(serious.map((v) => `${label}: ${v.id} (${v.nodes.length})`)).toEqual([]);
+  expect(serious.map((v) => `${label}: ${v.id} (${v.nodes.length}) ${v.nodes.slice(0, 3).map((n) => `${n.target.join(" ")} :: ${n.failureSummary?.split("\n").slice(1, 2).join("")}`).join(" | ")}`)).toEqual([]);
 }
 
 test("platform pages have no serious or critical axe violations @a11y", async ({ page }) => {
@@ -22,13 +22,28 @@ test("platform pages have no serious or critical axe violations @a11y", async ({
   await audit(page, "enrolment");
   await page.getByRole("link", { name: "My account" }).click();
   await audit(page, "my account");
-  await page.getByRole("button", { name: "Sign out" }).click();
-  await page.context().clearCookies();
-  await signIn(page, "admin-1");
-  for (const url of ["/admin", "/admin/audit", "/admin/integrations", "/admin/content"]) {
+  for (const url of ["/cpd", "/cpd/transcript"]) {
     await page.goto(url);
     await audit(page, url);
   }
+  await page.goto("/invite/not-a-valid-token");
+  await audit(page, "invite (invalid)");
+  await page.goto("/learn"); // the public invite page has no signed-in navigation
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.context().clearCookies();
+  await signIn(page, "manager-ent-a-1");
+  await page.goto("/manage");
+  await audit(page, "manager team");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.context().clearCookies();
+  await signIn(page, "admin-1");
+  for (const url of ["/admin", "/admin/audit", "/admin/integrations", "/admin/content", "/admin/organisations", "/admin/entitlement-events", "/admin/mappings"]) {
+    await page.goto(url);
+    await audit(page, url);
+  }
+  await page.goto("/admin/organisations");
+  await page.getByRole("link", { name: "Synthetic Enterprise A" }).click();
+  await audit(page, "organisation detail");
 });
 
 test("keyboard: the skip link moves focus to main content, and actions are reachable by Tab", async ({ page }) => {

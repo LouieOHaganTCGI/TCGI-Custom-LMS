@@ -5,6 +5,7 @@ const DB = process.env.TEST_DB ?? "lms_test";
 export const OWNER_URL = process.env.TEST_OWNER_URL ?? `postgres://lms_owner:lms_owner_local@${PG}/${DB}`;
 export const APP_URL = process.env.TEST_APP_URL ?? `postgres://lms_app:lms_app_local@${PG}/${DB}`;
 const SECRET = "test-only-secret-value-not-used-anywhere-else";
+export const TEST_COMMERCE_SECRET = `${SECRET}-commerce`;
 
 export function testConfig(overrides: Record<string, string> = {}): Config {
   return loadConfig({
@@ -23,6 +24,7 @@ export function testConfig(overrides: Record<string, string> = {}): Config {
     OIDC_PROVIDER_LABEL: "Local test IdP (not miniOrange)",
     BLOB_DIR: "var/blobs-test",
     LOG_LEVEL: "silent",
+    INBOUND_SOURCES: JSON.stringify({ "woocommerce:tcgi-store-sim": { keys: { "k1": TEST_COMMERCE_SECRET, "k2": `${TEST_COMMERCE_SECRET}-rotated` } } }),
     ...overrides,
   });
 }

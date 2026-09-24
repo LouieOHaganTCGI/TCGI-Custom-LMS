@@ -1,4 +1,7 @@
+import { sql } from "kysely";
 import type { ScopedDb } from "../../db/scoped.js";
+import { audit, personActor } from "../audit/audit.js";
+import { NotFoundError, RuleViolation } from "../authz/authz.js";
 import { asPrincipal, type AuthzContext } from "../authz/authz.js";
 
 export interface AuditRow {
@@ -84,9 +87,71 @@ export class AdminQueries {
       trx
         .selectFrom("course as c")
         .leftJoin("course_revision as r", (j) => j.onRef("r.course_id", "=", "c.id").on("r.state", "=", "published"))
-        .select(["c.id", "c.slug", "c.title", "c.tier", "r.revision_no", "r.published_at"])
+        .select(["c.id", "c.slug", "c.title", "c.tier", "r.revision_no", "r.published_at", "c.cpd_value", "c.cpd_unit"])
         .orderBy("c.created_at", "desc")
         .execute(),
     );
+  }
+
+  /** OPS-01: live counts straight from transactional tables (no copy, no staleness). */
+  overview(ctx: AuthzContext, now = new Date()) {
+    return asPrincipal(this.db, ctx, "admin.overview", async (trx) => {
+      const n = async (q: Promise<{ n: string } | undefined>) => Number((await q)?.n ?? 0);
+      const in30 = new Date(now.getTime() + 30 * 86_400_000);
+      const ago30 = new Date(now.getTime() - 30 * 86_400_000);
+      return {
+        activeLearners: await n(trx.selectFrom("enrolment").select(sql<string>`count(distinct person_id)`.as("n")).where("status", "=", "active").executeTakeFirst()),
+        activeEnrolments: await n(trx.selectFrom("enrolment").select(sql<string>`count(*)`.as("n")).where("status", "=", "active").executeTakeFirst()),
+        completions30d: await n(trx.selectFrom("enrolment").select(sql<string>`count(*)`.as("n")).where("completed_at", ">=", ago30).executeTakeFirst()),
+        expiring30d: await n(trx.selectFrom("enrolment").select(sql<string>`count(*)`.as("n")).where("status", "=", "active").where("access_end", ">", now).where("access_end", "<=", in30).executeTakeFirst()),
+        outboxDead: await n(trx.selectFrom("outbox_message").select(sql<string>`count(*)`.as("n")).where("status", "=", "dead").executeTakeFirst()),
+        outboxPending: await n(trx.selectFrom("outbox_message").select(sql<string>`count(*)`.as("n")).where("status", "=", "pending").executeTakeFirst()),
+        inboundHeld: await n(trx.selectFrom("integration_event").select(sql<string>`count(*)`.as("n")).where("status", "=", "held").executeTakeFirst()),
+        organisations: await n(trx.selectFrom("organisation").select(sql<string>`count(*)`.as("n")).where("kind", "=", "enterprise").executeTakeFirst()),
+        generatedAt: now,
+      };
+    });
+  }
+
+  inboundEvents(ctx: AuthzContext, status?: "received" | "processed" | "held", pageSize = 100) {
+    return asPrincipal(this.db, ctx, "admin.inbound", async (trx) => {
+      let q = trx.selectFrom("integration_event as e").leftJoin("entitlement as en", "en.id", "e.entitlement_id").leftJoin("person as p", "p.id", "en.person_id").leftJoin("course as c", "c.id", "en.course_id")
+        .select(["e.id", "e.source", "e.event_type", "e.aggregate_id", "e.effective_at", "e.source_sequence", "e.received_at", "e.status", "e.status_reason", "e.processed_at", "e.payload",
+          "en.id as entitlement_id", "en.status as entitlement_status", "en.valid_until", "p.display_name as learner", "c.title as course"])
+        .orderBy("e.received_at", "desc").limit(pageSize);
+      if (status) q = q.where("e.status", "=", status);
+      return q.execute();
+    });
+  }
+
+  async inboundEvent(ctx: AuthzContext, id: string): Promise<{ source: string; aggregate_id: string }> {
+    const r = await asPrincipal(this.db, ctx, "admin.inbound-one", (trx) => trx.selectFrom("integration_event").select(["source", "aggregate_id"]).where("id", "=", id).executeTakeFirst());
+    if (!r) throw new NotFoundError("event");
+    return r;
+  }
+
+  entitlementHistory(ctx: AuthzContext, entitlementId: string) {
+    return asPrincipal(this.db, ctx, "admin.entitlement-history", (trx) =>
+      trx.selectFrom("entitlement_decision").select(["id", "rule_version", "before", "after", "input_ref", "decided_at"]).where("entitlement_id", "=", entitlementId).orderBy("id").execute(),
+    );
+  }
+
+  mappings(ctx: AuthzContext) {
+    return asPrincipal(this.db, ctx, "admin.mappings", async (trx) => ({
+      mappings: await trx.selectFrom("commercial_product_reference as m").innerJoin("course as c", "c.id", "m.course_id")
+        .select(["m.id", "m.source", "m.external_product_id", "m.active", "m.created_at", "c.title"]).orderBy("m.created_at", "desc").execute(),
+      courses: await trx.selectFrom("course").select(["id", "title"]).orderBy("title").execute(),
+    }));
+  }
+
+  createMapping(ctx: AuthzContext, input: { source: string; externalProductId: string; courseId: string }, requestId: string | null) {
+    if (!ctx.platform) throw new NotFoundError("mapping");
+    if (!/^[a-z0-9-]+:[a-z0-9-]+$/.test(input.source) || !input.externalProductId.trim()) throw new RuleViolation("Enter a source (for example woocommerce:tcgi-store-staging) and a product ID.", "invalid_mapping");
+    return asPrincipal(this.db, ctx, "admin.mapping-create", async (trx) => {
+      const exists = await trx.selectFrom("commercial_product_reference").select("id").where("source", "=", input.source).where("external_product_id", "=", input.externalProductId.trim()).executeTakeFirst();
+      if (exists) throw new RuleViolation("That product is already mapped for this source.", "mapping_exists");
+      const m = await trx.insertInto("commercial_product_reference").values({ source: input.source, external_product_id: input.externalProductId.trim(), course_id: input.courseId }).returning("id").executeTakeFirstOrThrow();
+      await audit(trx, { actor: personActor(ctx.personId, ctx.displayName), action: "product_mapping.created", entityType: "commercial_product_reference", entityId: m.id, after: input, requestId });
+    });
   }
 }

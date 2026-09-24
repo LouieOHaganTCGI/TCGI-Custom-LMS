@@ -13,7 +13,11 @@ export const SYNTHETIC_PEOPLE = [
   { key: "learner-ent-a-1", name: "Brian Synthetic", email: "brian.synthetic@example.test", org: "synthetic-enterprise-a", admin: false },
   { key: "learner-ent-b-1", name: "Ciara Synthetic", email: "ciara.synthetic@example.test", org: "synthetic-enterprise-b", admin: false },
   { key: "admin-1", name: "Dana Admin (synthetic)", email: "dana.admin@example.test", org: "tcgi-direct", admin: true },
+  { key: "manager-ent-a-1", name: "Eoin Manager (synthetic)", email: "eoin.manager@example.test", org: "synthetic-enterprise-a", admin: false },
 ] as const;
+
+/** Synthetic commerce source for the local simulator (dev/commerce-sim.ts). Not a real store. */
+export const SIM_COMMERCE_SOURCE = "woocommerce:tcgi-store-sim";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const FIXTURE_DIR = path.join(ROOT, "fixtures", "scorm");
@@ -96,5 +100,32 @@ export async function seed(services: Services, issuer: string, now = new Date())
       system,
     );
   }
+  // Synthetic enterprise set-up: a manager, agreements and seat limits. These are NOT real contract terms (DEC-12).
+  await services.db.withSystem("seed", async (trx) => {
+    const mgr = people["manager-ent-a-1"]!;
+    const hasRole = await trx.selectFrom("role_grant").select("id").where("person_id", "=", mgr).where("role", "=", "enterprise_manager").executeTakeFirst();
+    if (!hasRole) {
+      await trx.insertInto("role_grant").values({ person_id: mgr, role: "enterprise_manager", scope_type: "organisation", organisation_id: orgs["synthetic-enterprise-a"]!, reason: "synthetic seed manager" }).execute();
+    }
+    const agreements = [
+      { org: "synthetic-enterprise-a", reference: "SYNTHETIC-A-AGREEMENT", seats: 3, courses: ["synthetic-course-scorm12", "synthetic-pathway-two-lessons"] },
+      { org: "synthetic-enterprise-b", reference: "SYNTHETIC-B-AGREEMENT", seats: 2, courses: ["synthetic-course-scorm2004"] },
+    ];
+    for (const a of agreements) {
+      const exists = await trx.selectFrom("agreement").select("id").where("organisation_id", "=", orgs[a.org]!).where("reference", "=", a.reference).executeTakeFirst();
+      if (exists) continue;
+      const row = await trx.insertInto("agreement").values({ organisation_id: orgs[a.org]!, reference: a.reference, seat_limit: a.seats,
+        access_start: new Date(now.getTime() - 30 * 86_400_000), access_end: new Date(now.getTime() + 365 * 86_400_000) }).returning("id").executeTakeFirstOrThrow();
+      for (const c of a.courses) await trx.insertInto("agreement_course").values({ agreement_id: row.id, course_id: courses[c]! }).execute();
+    }
+    // Commerce product mappings for the local simulator.
+    for (const [product, course] of [["SYN-PROD-FOUNDATION-01", "synthetic-course-scorm2004"], ["SYN-PROD-PATHWAY-01", "synthetic-pathway-two-lessons"]] as const) {
+      await trx.insertInto("commercial_product_reference").values({ source: SIM_COMMERCE_SOURCE, external_product_id: product, course_id: courses[course]! })
+        .onConflict((c) => c.columns(["source", "external_product_id"]).doNothing()).execute();
+    }
+    // Demo CPD values (synthetic: the real values and unit are DEC-22).
+    await trx.updateTable("course").set({ cpd_value: 1, cpd_unit: "CPD units (synthetic)" }).where("id", "=", courses["synthetic-course-scorm12"]!).where("cpd_value", "is", null).execute();
+    await trx.updateTable("course").set({ cpd_value: 2.5, cpd_unit: "CPD units (synthetic)" }).where("id", "in", [courses["synthetic-course-scorm2004"]!, courses["synthetic-pathway-two-lessons"]!]).where("cpd_value", "is", null).execute();
+  });
   return { orgs, people, contentVersions: { scorm12: v12.contentVersionId, scorm2004: v04.contentVersionId }, courses };
 }

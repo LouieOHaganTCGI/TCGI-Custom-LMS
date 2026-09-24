@@ -59,7 +59,7 @@ describe("enrolment rules", () => {
     const r1 = await h.app.inject({ method: "POST", url: `/learn/courses/${course}/enrol`, headers: { cookie: brian.cookie, ...FORM }, payload: form({ _csrf: brian.csrf }) });
     const r2 = await h.app.inject({ method: "POST", url: `/learn/courses/${course}/enrol`, headers: { cookie: brian.cookie, ...FORM }, payload: form({ _csrf: brian.csrf }) });
     expect(r1.headers.location).toBe(r2.headers.location);
-    const id = r1.headers.location!.split("/").pop();
+    const id = r1.headers.location!.split("?")[0]!.split("/").pop();
     const [en] = await ownerQuery<{ course_revision_id: string; access_end: Date; organisation_id: string }>("select course_revision_id, access_end, organisation_id from enrolment where id=$1", [id]);
     const [rev] = await ownerQuery<{ id: string }>("select id from course_revision where course_id=$1 and state='published'", [course]);
     expect(en!.course_revision_id).toBe(rev!.id);

@@ -268,11 +268,27 @@ export class LearningService {
       .executeTakeFirstOrThrow();
     if (Number(remaining.n) > 0) return false;
     await trx.updateTable("enrolment").set({ status: "completed", completed_at: now }).where("id", "=", en.id).where("status", "=", "active").execute();
+
+    // LRN-05: CPD is awarded once per completion (unique on the source), using the course's value at award
+    // time. Awarding on course completion follows spec §3.3 and is PROVISIONAL pending DEC-22.
+    const course = await trx.selectFrom("enrolment as e").innerJoin("course as c", "c.id", "e.course_id").select(["c.id", "c.cpd_value", "c.cpd_unit"]).where("e.id", "=", en.id).executeTakeFirstOrThrow();
+    let cpd: { amount: number; unit: string } | undefined;
+    if (course.cpd_value !== null && course.cpd_unit) {
+      const award = await trx.insertInto("cpd_award").values({
+        organisation_id: a.organisationId, person_id: a.personId, enrolment_id: en.id, course_id: course.id, value: course.cpd_value, unit: course.cpd_unit,
+        source_type: "course_completion", source_id: en.id,
+      }).onConflict((c) => c.columns(["source_type", "source_id"]).doNothing()).returning(["id", "value", "unit"]).executeTakeFirst();
+      if (award) {
+        cpd = { amount: Number(award.value), unit: award.unit };
+        await audit(trx, { actor: personActor(a.personId, a.displayName), action: "cpd.awarded", entityType: "cpd_award", entityId: award.id, organisationId: a.organisationId,
+          after: { enrolment_id: en.id, value: award.value, unit: award.unit, rule: "on-course-completion/v0 (DEC-22)" } });
+      }
+    }
     await enqueueEvent(trx, this.opts.eventSource, {
       type: "course.completed",
       aggregate: { type: "enrolment", id: en.id },
       occurredAt: now,
-      data: { enrolment_id: en.id, completed_at: now.toISOString(), completion_rule_version: en.completion_rule_ref },
+      data: { enrolment_id: en.id, completed_at: now.toISOString(), completion_rule_version: en.completion_rule_ref, ...(cpd ? { cpd_awarded: cpd } : {}) },
     });
     await audit(trx, {
       actor: personActor(a.personId, a.displayName), action: "enrolment.completed", entityType: "enrolment", entityId: en.id,

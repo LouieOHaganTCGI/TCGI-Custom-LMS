@@ -84,9 +84,11 @@ export async function enrolAndLaunch(h: Harness, login: { cookie: string; csrf: 
   const courseId = h.data.courses[courseSlug]!;
   const enrol = await h.app.inject({ method: "POST", url: `/learn/courses/${courseId}/enrol`, headers: { cookie: login.cookie, ...FORM }, payload: form({ _csrf: login.csrf }) });
   if (enrol.statusCode !== 303) throw new Error(`enrol failed: ${enrol.statusCode} ${enrol.body.slice(0, 200)}`);
-  const enrolmentId = enrol.headers.location!.split("/").pop()!;
+  const enrolmentId = enrol.headers.location!.split("?")[0]!.split("/").pop()!;
   const page = await h.app.inject({ method: "GET", url: `/learn/enrolments/${enrolmentId}`, headers: { cookie: login.cookie } });
-  const placementIds = [...page.body.matchAll(/placements\/([0-9a-f-]{36})\/launch/g)].map((m) => m[1]!);
+  // Lesson-list order. The hero "continue" form repeats one of them, so dedupe while keeping first-seen order of the list.
+  const listHtml = page.body.slice(page.body.indexOf('class="steps lesson-list"'));
+  const placementIds = [...new Set([...listHtml.matchAll(/placements\/([0-9a-f-]{36})\/launch/g)].map((m) => m[1]!))];
   const placementId = placementIds[placementIndex]!;
   const launch = await h.app.inject({ method: "POST", url: `/learn/enrolments/${enrolmentId}/placements/${placementId}/launch`, headers: { cookie: login.cookie, ...FORM }, payload: form({ _csrf: login.csrf }) });
   if (launch.statusCode !== 303) throw new Error(`launch failed: ${launch.statusCode}`);

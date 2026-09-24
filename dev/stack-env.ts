@@ -1,5 +1,7 @@
 /** Environment for the local dev and E2E stacks. Local-only secrets, never used anywhere real. */
 const LOCAL_SECRET = "local-dev-only-secret-not-for-any-real-environment";
+/** HMAC key the local commerce simulator signs with (local only). */
+export const SIM_COMMERCE_SECRET = `${LOCAL_SECRET}-commerce-sim`;
 
 export interface StackPorts {
   app: number;
@@ -31,6 +33,7 @@ export function stackEnv(db: string, ports: StackPorts, pg = "127.0.0.1:54329"):
     RUN_WORKER: "true",
     WORKER_POLL_MS: "300",
     LOG_LEVEL: "warn",
+    INBOUND_SOURCES: JSON.stringify({ "woocommerce:tcgi-store-sim": { keys: { "sim-1": SIM_COMMERCE_SECRET } } }),
   };
 }
 

@@ -88,7 +88,7 @@ describe("cross-learner and cross-tenant access (IDOR)", () => {
   it("a client-supplied organisation_id is ignored: the enrolment takes the entitlement's organisation", async () => {
     const r = await post(`/learn/courses/${h.data.courses["synthetic-course-scorm2004"]}/enrol`, aoife, { organisation_id: h.data.orgs["synthetic-enterprise-b"]! });
     expect(r.statusCode).toBe(303);
-    const id = r.headers.location!.split("/").pop();
+    const id = r.headers.location!.split("?")[0]!.split("/").pop();
     const [row] = await ownerQuery<{ organisation_id: string }>("select organisation_id from enrolment where id=$1", [id]);
     expect(row!.organisation_id).toBe(h.data.orgs["tcgi-direct"]);
   });

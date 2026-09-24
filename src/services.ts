@@ -11,6 +11,9 @@ import { OidcRelyingParty } from "./modules/identity/oidc.js";
 import { SessionStore } from "./modules/identity/sessions.js";
 import { OutboxDispatcher, SignedWebhookDestination, type DestinationAdapter } from "./modules/integration/dispatcher.js";
 import { LearningService } from "./modules/learning/learning-service.js";
+import { EntitlementEventService } from "./modules/entitlements/entitlement-events.js";
+import { EnterpriseService } from "./modules/enterprise/enterprise-service.js";
+import { CpdService } from "./modules/cpd/cpd-service.js";
 
 export interface Services {
   config: Config;
@@ -25,6 +28,9 @@ export interface Services {
   learning: LearningService;
   dispatcher: OutboxDispatcher;
   admin: AdminQueries;
+  entitlementEvents: EntitlementEventService;
+  enterprise: EnterpriseService;
+  cpd: CpdService;
   close(): Promise<void>;
 }
 
@@ -58,6 +64,9 @@ export function createServices(config: Config, overrides: { adapters?: Map<strin
     learning: new LearningService(db, { launchTokenSecret: config.LAUNCH_TOKEN_SECRET, contentBaseUrl: config.CONTENT_BASE_URL, eventSource }),
     dispatcher: new OutboxDispatcher(db, adapters, config.OUTBOX_MAX_ATTEMPTS),
     admin: new AdminQueries(db),
+    entitlementEvents: new EntitlementEventService(db, config.INBOUND_SOURCES, eventSource),
+    enterprise: new EnterpriseService(db, { appBaseUrl: config.APP_BASE_URL, eventSource }),
+    cpd: new CpdService(db),
     close: () => db.destroy(),
   };
 }

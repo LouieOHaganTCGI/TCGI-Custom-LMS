@@ -11,7 +11,7 @@ import { signIn, signOut, waitForStubEvent } from "./helpers.js";
 async function runLessonJourney(page: Page, courseTitle: string) {
   await page.getByRole("button", { name: `Enrol in ${courseTitle}` }).click();
   await page.waitForURL("**/learn/enrolments/**");
-  const enrolmentId = page.url().split("/").pop()!;
+  const enrolmentId = new URL(page.url()).pathname.split("/").pop()!;
   await expect(page.getByRole("heading", { level: 1, name: courseTitle })).toBeVisible();
 
   // First launch: ab-initio.
@@ -44,7 +44,7 @@ async function runLessonJourney(page: Page, courseTitle: string) {
   await expect(page.locator(".lesson-list")).toContainText("Passed");
   await expect(page.locator(".lesson-list")).toContainText("Score reported by the lesson: 80");
   await page.getByRole("link", { name: "My learning" }).first().click();
-  await expect(page.locator(".card", { hasText: courseTitle })).toContainText("1 of 1 lessons completed");
+  await expect(page.locator(".course-card", { hasText: courseTitle })).toContainText("1 of 1 lessons completed");
   return enrolmentId;
 }
 
@@ -83,7 +83,7 @@ test.describe("Phase B vertical slice", () => {
 
   test("tenant isolation in the browser: a learner from another organisation gets a 404 on someone else's enrolment", async ({ page }) => {
     await signIn(page, "learner-b2c-1");
-    await page.getByRole("link", { name: /Synthetic course: SCORM 2004 lesson/ }).click();
+    await page.getByRole("link", { name: /Synthetic course: SCORM 2004 lesson/ }).first().click();
     const foreignUrl = page.url();
     await signOut(page);
     await signIn(page, "learner-ent-b-1");

@@ -8,7 +8,8 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { sql } from "kysely";
 import { audit, personActor } from "../modules/audit/audit.js";
-import { asPrincipal, can, loadAuthzContext, NotFoundError, RuleViolation, type AuthzContext } from "../modules/authz/authz.js";
+import { asPrincipal, can, loadAuthzContext, NotFoundError, RuleViolation, type AuthzContext, type Capability } from "../modules/authz/authz.js";
+import { cpdYearOf } from "../modules/cpd/cpd-service.js";
 import { PackageValidationError } from "../modules/catalogue/scorm-package.js";
 import { OidcError, safeReturnTo } from "../modules/identity/oidc.js";
 import type { ActiveSession } from "../modules/identity/sessions.js";
@@ -17,9 +18,11 @@ import type { Services } from "../services.js";
 import type { CourseTier } from "../db/schema.js";
 import { AUTH_REQUEST_COOKIE, cookieOptions, isUuid, safeReqLog, SESSION_COOKIE, sendHtml } from "./http-helpers.js";
 import { enforceRoutePolicies, type RegisteredRoute, type RoutePolicy } from "./route-policy.js";
-import { AdminAuditPage, AdminContentPage, AdminHome, AdminIntegrationsPage } from "./views/admin.js";
-import { ErrorPage, render, type NavUser } from "./views/layout.js";
-import { DashboardPage, DeniedPage, EnrolmentPage, MePage, SignInPage } from "./views/learner.js";
+import { AdminAuditPage, AdminContentPage, AdminInboundPage, AdminIntegrationsPage, AdminMappingsPage, AdminOrganisationPage, AdminOrganisationsPage, AdminOverviewPage } from "./views/admin.js";
+import { CpdPage, TranscriptPage } from "./views/cpd.js";
+import { ErrorPage, isFlashCode, render, type FlashCode, type NavUser } from "./views/layout.js";
+import { DashboardPage, DeniedPage, EnrolmentPage, InvitePage, MePage, SignInPage } from "./views/learner.js";
+import { ManagePickPage, TeamPage } from "./views/manager.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -32,8 +35,20 @@ const STATIC_DIR = new URL("./static/", import.meta.url);
 const TIERS: CourseTier[] = ["microlesson", "foundation", "professional_certificate", "advanced_certificate", "diploma"];
 
 function navUser(req: FastifyRequest): NavUser | null {
-  return req.authz && req.session ? { displayName: req.authz.displayName, isAdmin: req.authz.platform, csrfToken: req.session.csrfToken } : null;
+  return req.authz && req.session
+    ? { displayName: req.authz.displayName, isAdmin: req.authz.platform, isManager: req.authz.capabilities.has("org.manage"), csrfToken: req.session.csrfToken }
+    : null;
 }
+
+/** A whitelisted flash code from ?flash=… (never free text). */
+function flashOf(req: FastifyRequest): FlashCode | null {
+  const f = (req.query as Record<string, unknown> | undefined)?.flash;
+  return isFlashCode(f) ? f : null;
+}
+
+const str = (v: unknown) => (typeof v === "string" ? v : "");
+/** Multi-value form fields (checkboxes) arrive as a string or an array. */
+const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : typeof v === "string" ? [v] : []);
 
 export async function buildAppServer(services: Services, registry: RegisteredRoute[] = []): Promise<FastifyInstance> {
   const { config } = services;
@@ -91,6 +106,7 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
     const policy = req.routeOptions.config.policy as RoutePolicy | undefined;
     if (!policy) return; // only the not-found handler has no policy: onRoute rejects any real route without one
     if (policy.auth === "public") return;
+    if (policy.auth === "signed-event") return; // verified in the handler against the raw body (docs/04 §1)
     if (policy.auth !== "session") return reply.code(404).send();
     if (!req.authz || !req.session) {
       if (req.method === "GET") return reply.redirect(`/?return_to=${encodeURIComponent(safeReturnTo(req.url))}`, 303);
@@ -125,7 +141,7 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
 
   const pub: RoutePolicy = { auth: "public", tenancy: "none" };
   const self: RoutePolicy = { auth: "session", capability: "learning.self", tenancy: "self" };
-  const plat = (capability: "audit.read" | "integration.read" | "integration.replay" | "content.import" | "course.publish", csrf?: false): RoutePolicy => ({
+  const plat = (capability: Capability, csrf?: false): RoutePolicy => ({
     auth: "session", capability, tenancy: "platform", ...(csrf === false ? { csrf } : {}),
   });
 
@@ -140,6 +156,11 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
     return reply.header("content-type", "text/css; charset=utf-8").header("cache-control", "public, max-age=300").send(css);
   });
 
+  app.get("/assets/app.js", { config: { policy: pub } }, async (_req, reply) => {
+    const js = await fs.readFile(new URL("app.js", STATIC_DIR));
+    return reply.header("content-type", "text/javascript; charset=utf-8").header("cache-control", "public, max-age=300").send(js);
+  });
+
   app.get("/", { config: { policy: pub } }, async (req, reply) => {
     if (req.authz) return reply.redirect("/learn", 303);
     const q = req.query as Record<string, string | undefined>;
@@ -150,7 +171,7 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
   const authLimit = { rateLimit: { max: 30, timeWindow: "1 minute" } };
   app.get("/auth/login", { config: { policy: pub, ...authLimit } }, async (req, reply) => {
     const q = req.query as Record<string, string | undefined>;
-    const { redirectUrl, requestCookie } = await services.oidc.begin(safeReturnTo(q.return_to));
+    const { redirectUrl, requestCookie } = await services.oidc.begin(safeReturnTo(q.return_to), new Date(), q.invite ?? null);
     reply.setCookie(AUTH_REQUEST_COOKIE, requestCookie, cookieOptions(config.APP_BASE_URL, "/auth", 600));
     return reply.redirect(redirectUrl, 302);
   });
@@ -158,8 +179,8 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
   app.get("/auth/callback", { config: { policy: pub, ...authLimit } }, async (req, reply) => {
     const callbackUrl = new URL(req.url, config.APP_BASE_URL);
     reply.clearCookie(AUTH_REQUEST_COOKIE, { path: "/auth" });
-    const { claims, returnTo } = await services.oidc.complete(req.cookies[AUTH_REQUEST_COOKIE], callbackUrl);
-    const result = await services.identity.resolveLogin(claims, req.id);
+    const { claims, returnTo, inviteTokenHash } = await services.oidc.complete(req.cookies[AUTH_REQUEST_COOKIE], callbackUrl);
+    const result = await services.identity.resolveLogin(claims, req.id, new Date(), inviteTokenHash);
     if (result.outcome === "denied") return sendHtml(reply, render(<DeniedPage reason={result.reason} />), 403);
     // A fresh session id on every login (no session fixation). Any previous session is revoked.
     const old = req.cookies[SESSION_COOKIE];
@@ -183,8 +204,8 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
   // ---------------------------------------------------------------- learner
   app.get("/learn", { config: { policy: self } }, async (req, reply) => {
     const ctx = req.authz!;
-    const [enrolments, eligible] = await Promise.all([services.enrolment.listMine(ctx), services.enrolment.listEligible(ctx)]);
-    return sendHtml(reply, render(<DashboardPage user={navUser(req)!} enrolments={enrolments} eligible={eligible} now={new Date()} />));
+    const [enrolments, eligible, cpd] = await Promise.all([services.enrolment.listMine(ctx), services.enrolment.listEligible(ctx), services.cpd.thisYear(ctx)]);
+    return sendHtml(reply, render(<DashboardPage user={navUser(req)!} enrolments={enrolments} eligible={eligible} now={new Date()} cpdThisYear={cpd} flash={flashOf(req)} />));
   });
 
   app.post("/learn/courses/:courseId/enrol", { config: { policy: self } }, async (req, reply) => {
@@ -192,14 +213,14 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
     if (!isUuid(courseId)) throw new NotFoundError("course");
     // Deliberately reads nothing else from the body: the organisation comes from the entitlement (ADR-0004).
     const { enrolmentId } = await services.enrolment.enrol(req.authz!, courseId, req.id);
-    return reply.redirect(`/learn/enrolments/${enrolmentId}`, 303);
+    return reply.redirect(`/learn/enrolments/${enrolmentId}?flash=enrolled`, 303);
   });
 
   app.get("/learn/enrolments/:enrolmentId", { config: { policy: self } }, async (req, reply) => {
     const { enrolmentId } = req.params as { enrolmentId: string };
     if (!isUuid(enrolmentId)) throw new NotFoundError("enrolment");
     const view = await services.learning.getEnrolment(req.authz!, enrolmentId);
-    return sendHtml(reply, render(<EnrolmentPage user={navUser(req)!} view={view} />));
+    return sendHtml(reply, render(<EnrolmentPage user={navUser(req)!} view={view} now={new Date()} flash={flashOf(req)} />));
   });
 
   app.post("/learn/enrolments/:enrolmentId/placements/:placementId/launch", { config: { policy: self } }, async (req, reply) => {
@@ -223,7 +244,8 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
   });
 
   // ---------------------------------------------------------------- TCGI admin (platform)
-  app.get("/admin", { config: { policy: plat("audit.read") } }, async (req, reply) => sendHtml(reply, render(<AdminHome user={navUser(req)!} />)));
+  app.get("/admin", { config: { policy: plat("audit.read") } }, async (req, reply) =>
+    sendHtml(reply, render(<AdminOverviewPage user={navUser(req)!} stats={await services.admin.overview(req.authz!)} flash={flashOf(req)} />)));
 
   app.get("/admin/audit", { config: { policy: plat("audit.read") } }, async (req, reply) => {
     const q = req.query as Record<string, string | undefined>;
@@ -250,7 +272,7 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
 
   const contentPage = async (req: FastifyRequest, reply: FastifyReply, extra: { message?: string; error?: string }, status = 200) => {
     const [versions, courses] = await Promise.all([services.admin.contentVersions(req.authz!), services.admin.courses(req.authz!)]);
-    return sendHtml(reply, render(<AdminContentPage user={navUser(req)!} versions={versions} courses={courses} message={extra.message} error={extra.error} />), status);
+    return sendHtml(reply, render(<AdminContentPage user={navUser(req)!} versions={versions} courses={courses} message={extra.message} error={extra.error} flash={flashOf(req)} />), status);
   };
 
   app.get("/admin/content", { config: { policy: plat("content.import") } }, async (req, reply) => contentPage(req, reply, {}));
@@ -304,6 +326,212 @@ export async function buildAppServer(services: Services, registry: RegisteredRou
       if (e instanceof RuleViolation) return contentPage(req, reply, { error: e.message }, 409);
       throw e;
     }
+  });
+
+  app.post("/admin/courses/:courseId/cpd", { config: { policy: plat("course.publish") } }, async (req, reply) => {
+    const { courseId } = req.params as { courseId: string };
+    if (!isUuid(courseId)) throw new NotFoundError("course");
+    const b = req.body as Record<string, unknown>;
+    const rawValue = str(b.cpd_value).trim();
+    const rawUnit = str(b.cpd_unit).trim();
+    const value = rawValue === "" ? null : Number(rawValue.replace(",", "."));
+    try {
+      await services.cpd.setCourseCpd(req.authz!, courseId, value, rawUnit === "" ? null : rawUnit, req.id);
+    } catch (e) {
+      if (e instanceof RuleViolation) return contentPage(req, reply, { error: e.message }, 400);
+      throw e;
+    }
+    return reply.redirect("/admin/content?flash=course-updated", 303);
+  });
+
+  // ---------------------------------------------------------------- CPD (learner)
+  app.get("/cpd", { config: { policy: self } }, async (req, reply) => {
+    const year = /^\d{4}$/.test(str((req.query as Record<string, unknown>).year)) ? str((req.query as Record<string, unknown>).year) : undefined;
+    const summary = await services.cpd.summary(req.authz!, year);
+    return sendHtml(reply, render(<CpdPage user={navUser(req)!} summary={summary} year={year} currentYear={cpdYearOf(new Date())} />));
+  });
+
+  app.get("/cpd/transcript", { config: { policy: self } }, async (req, reply) => {
+    const year = /^\d{4}$/.test(str((req.query as Record<string, unknown>).year)) ? str((req.query as Record<string, unknown>).year) : undefined;
+    const summary = await services.cpd.summary(req.authz!, year);
+    return sendHtml(reply, render(<TranscriptPage user={navUser(req)!} name={req.authz!.displayName} summary={summary} year={year} generatedAt={new Date()} />));
+  });
+
+  app.get("/cpd/transcript.csv", { config: { policy: self } }, async (req, reply) => {
+    const year = /^\d{4}$/.test(str((req.query as Record<string, unknown>).year)) ? str((req.query as Record<string, unknown>).year) : undefined;
+    const csv = await services.cpd.transcriptCsv(req.authz!, req.id, year);
+    return reply.header("content-type", "text/csv; charset=utf-8").header("content-disposition", `attachment; filename="cpd-transcript${year ? `-${year}` : ""}.csv"`).header("cache-control", "no-store").send(csv);
+  });
+
+  // ---------------------------------------------------------------- invitations (public landing, ID-03)
+  app.get("/invite/:token", { config: { policy: pub } }, async (req, reply) => {
+    const { token } = req.params as { token: string };
+    const preview = await services.identity.invitationPreview(token);
+    return sendHtml(reply, render(<InvitePage orgName={preview?.orgName ?? null} token={token} providerLabel={config.OIDC_PROVIDER_LABEL} />), preview ? 200 : 404);
+  });
+
+  // ---------------------------------------------------------------- enterprise manager (org-scoped)
+  const mgr = (capability: Capability): RoutePolicy => ({ auth: "session", capability, tenancy: "org" });
+  const orgParam = (req: FastifyRequest) => {
+    const { orgId } = req.params as { orgId: string };
+    if (!isUuid(orgId)) throw new NotFoundError("organisation");
+    return orgId; // a selector only: EnterpriseService checks it against the manager's server-side grants (ADR-0004)
+  };
+  const teamPage = async (req: FastifyRequest, reply: FastifyReply, orgId: string, extra: { inviteLink?: string; error?: string } = {}, status = 200) => {
+    const view = await services.enterprise.teamView(req.authz!, orgId);
+    return sendHtml(reply, render(<TeamPage user={navUser(req)!} view={view} now={new Date()} flash={flashOf(req)} inviteLink={extra.inviteLink} error={extra.error} />), status);
+  };
+
+  app.get("/manage", { config: { policy: mgr("org.manage") } }, async (req, reply) => {
+    const orgs = await services.enterprise.managedOrganisations(req.authz!);
+    if (orgs.length === 1) return reply.redirect(`/manage/orgs/${orgs[0]!.id}`, 303);
+    return sendHtml(reply, render(<ManagePickPage user={navUser(req)!} orgs={orgs} />));
+  });
+
+  app.get("/manage/orgs/:orgId", { config: { policy: mgr("org.manage") } }, async (req, reply) => teamPage(req, reply, orgParam(req)));
+
+  app.post("/manage/orgs/:orgId/invitations", { config: { policy: mgr("org.manage") } }, async (req, reply) => {
+    const orgId = orgParam(req);
+    const b = req.body as Record<string, unknown>;
+    try {
+      const r = await services.enterprise.invite(req.authz!, orgId, { name: str(b.name), email: str(b.email) }, req.id);
+      return teamPage(req, reply, orgId, { inviteLink: r.link }, 201);
+    } catch (e) {
+      if (e instanceof RuleViolation) return teamPage(req, reply, orgId, { error: e.message }, 400);
+      throw e;
+    }
+  });
+
+  app.post("/manage/orgs/:orgId/assignments", { config: { policy: mgr("org.manage") } }, async (req, reply) => {
+    const orgId = orgParam(req);
+    const b = req.body as Record<string, unknown>;
+    const personId = str(b.person_id);
+    const courseId = str(b.course_id);
+    if (!isUuid(personId) || !isUuid(courseId)) return teamPage(req, reply, orgId, { error: "Choose a learner and a course." }, 400);
+    try {
+      await services.enterprise.assignCourse(req.authz!, orgId, personId, courseId, req.id);
+    } catch (e) {
+      if (e instanceof RuleViolation) return teamPage(req, reply, orgId, { error: e.message }, 409);
+      throw e;
+    }
+    return reply.redirect(`/manage/orgs/${orgId}?flash=seat-assigned`, 303);
+  });
+
+  app.get("/manage/orgs/:orgId/export.csv", { config: { policy: mgr("report.export.org") } }, async (req, reply) => {
+    const orgId = orgParam(req);
+    const csv = await services.enterprise.exportCsv(req.authz!, orgId, req.id);
+    return reply.header("content-type", "text/csv; charset=utf-8").header("content-disposition", 'attachment; filename="team-progress.csv"').header("cache-control", "no-store").send(csv);
+  });
+
+  // ---------------------------------------------------------------- TCGI admin: organisations and seats
+  const orgsPage = async (req: FastifyRequest, reply: FastifyReply, error?: string, status = 200) =>
+    sendHtml(reply, render(<AdminOrganisationsPage user={navUser(req)!} orgs={await services.enterprise.listOrganisations(req.authz!)} flash={flashOf(req)} error={error} />), status);
+  const orgDetailPage = async (req: FastifyRequest, reply: FastifyReply, orgId: string, extra: { error?: string; inviteLink?: string } = {}, status = 200) =>
+    sendHtml(reply, render(<AdminOrganisationPage user={navUser(req)!} d={await services.enterprise.organisationDetail(req.authz!, orgId)} flash={flashOf(req)} error={extra.error} inviteLink={extra.inviteLink} />), status);
+  const ruleOr = async <T,>(fn: () => Promise<T>, onRule: (msg: string) => Promise<unknown>): Promise<T | undefined> => {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof RuleViolation) {
+        await onRule(e.message);
+        return undefined;
+      }
+      throw e;
+    }
+  };
+
+  app.get("/admin/organisations", { config: { policy: plat("org.admin") } }, async (req, reply) => orgsPage(req, reply));
+
+  app.post("/admin/organisations", { config: { policy: plat("org.admin") } }, async (req, reply) => {
+    const b = req.body as Record<string, unknown>;
+    const id = await ruleOr(() => services.enterprise.createOrganisation(req.authz!, { slug: str(b.slug).trim(), name: str(b.name) }, req.id), (m) => orgsPage(req, reply, m, 400));
+    if (id === undefined) return reply;
+    return reply.redirect(`/admin/organisations/${id}?flash=org-created`, 303);
+  });
+
+  app.get("/admin/organisations/:orgId", { config: { policy: plat("org.admin") } }, async (req, reply) => orgDetailPage(req, reply, orgParam(req)));
+
+  app.post("/admin/organisations/:orgId/agreements", { config: { policy: plat("org.admin") } }, async (req, reply) => {
+    const orgId = orgParam(req);
+    const b = req.body as Record<string, unknown>;
+    const start = new Date(`${str(b.access_start)}T00:00:00Z`);
+    const end = new Date(`${str(b.access_end)}T23:59:59Z`);
+    const courseIds = list(b.course_ids).filter(isUuid);
+    const ok = await ruleOr(() => services.enterprise.createAgreement(req.authz!, orgId, {
+      reference: str(b.reference), seatLimit: Number(str(b.seat_limit)), accessStart: start, accessEnd: end, courseIds,
+    }, req.id), (m) => orgDetailPage(req, reply, orgId, { error: m }, 400));
+    if (ok === undefined) return reply;
+    return reply.redirect(`/admin/organisations/${orgId}?flash=agreement-created`, 303);
+  });
+
+  app.post("/admin/organisations/:orgId/managers", { config: { policy: plat("org.admin") } }, async (req, reply) => {
+    const orgId = orgParam(req);
+    const personId = str((req.body as Record<string, unknown>).person_id);
+    if (!isUuid(personId)) return orgDetailPage(req, reply, orgId, { error: "Choose a member." }, 400);
+    const ok = await ruleOr(async () => (await services.enterprise.grantManager(req.authz!, orgId, personId, req.id), true), (m) => orgDetailPage(req, reply, orgId, { error: m }, 400));
+    if (ok === undefined) return reply;
+    return reply.redirect(`/admin/organisations/${orgId}?flash=manager-granted`, 303);
+  });
+
+  app.post("/admin/organisations/:orgId/invitations", { config: { policy: plat("org.admin") } }, async (req, reply) => {
+    const orgId = orgParam(req);
+    const b = req.body as Record<string, unknown>;
+    const r = await ruleOr(() => services.enterprise.invite(req.authz!, orgId, { name: str(b.name), email: str(b.email) }, req.id), (m) => orgDetailPage(req, reply, orgId, { error: m }, 400));
+    if (r === undefined) return reply;
+    return orgDetailPage(req, reply, orgId, { inviteLink: r.link }, 201);
+  });
+
+  app.post("/admin/seats/:seatId/release", { config: { policy: plat("org.admin") } }, async (req, reply) => {
+    const { seatId } = req.params as { seatId: string };
+    if (!isUuid(seatId)) throw new NotFoundError("seat");
+    const orgId = await services.enterprise.releaseSeat(req.authz!, seatId, str((req.body as Record<string, unknown>).reason), req.id);
+    return reply.redirect(`/admin/organisations/${orgId}?flash=seat-released`, 303);
+  });
+
+  // ---------------------------------------------------------------- TCGI admin: commerce events and mappings (S4)
+  app.get("/admin/entitlement-events", { config: { policy: plat("entitlement.admin") } }, async (req, reply) => {
+    const st = str((req.query as Record<string, unknown>).status);
+    const status = st === "held" || st === "processed" || st === "received" ? st : undefined;
+    const rows = await services.admin.inboundEvents(req.authz!, status);
+    return sendHtml(reply, render(<AdminInboundPage user={navUser(req)!} rows={rows} status={status} flash={flashOf(req)} />));
+  });
+
+  app.post("/admin/entitlement-events/:id/reprocess", { config: { policy: plat("entitlement.admin") } }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!isUuid(id)) throw new NotFoundError("event");
+    const ev = await services.admin.inboundEvent(req.authz!, id);
+    await services.entitlementEvents.processAggregate(ev.source, ev.aggregate_id, personActor(req.authz!.personId, req.authz!.displayName), req.id);
+    return reply.redirect("/admin/entitlement-events?flash=event-reprocessed", 303);
+  });
+
+  const mappingsPage = async (req: FastifyRequest, reply: FastifyReply, error?: string, status = 200) => {
+    const m = await services.admin.mappings(req.authz!);
+    return sendHtml(reply, render(<AdminMappingsPage user={navUser(req)!} mappings={m.mappings} courses={m.courses} flash={flashOf(req)} error={error} />), status);
+  };
+  app.get("/admin/mappings", { config: { policy: plat("entitlement.admin") } }, async (req, reply) => mappingsPage(req, reply));
+  app.post("/admin/mappings", { config: { policy: plat("entitlement.admin") } }, async (req, reply) => {
+    const b = req.body as Record<string, unknown>;
+    if (!isUuid(str(b.course_id))) return mappingsPage(req, reply, "Choose a course.", 400);
+    const ok = await ruleOr(async () => (await services.admin.createMapping(req.authz!, { source: str(b.source).trim(), externalProductId: str(b.external_product_id), courseId: str(b.course_id) }, req.id), true),
+      (m) => mappingsPage(req, reply, m, 400));
+    if (ok === undefined) return reply;
+    return reply.redirect("/admin/mappings?flash=mapping-created", 303);
+  });
+
+  // ---------------------------------------------------------------- inbound signed events (INT-01, machine-to-machine)
+  await app.register(async (scope) => {
+    // Raw body for HMAC verification. JSON is parsed only after the signature checks out.
+    scope.removeContentTypeParser("application/json");
+    scope.addContentTypeParser("application/json", { parseAs: "string", bodyLimit: 256 * 1024 }, (_req, body, done) => done(null, body));
+    scope.post("/integrations/v1/events/:source", { config: { policy: { auth: "signed-event", tenancy: "system" }, rateLimit: { max: 600, timeWindow: "1 minute" } } }, async (req, reply) => {
+      const { source } = req.params as { source: string };
+      const raw = typeof req.body === "string" ? req.body : "";
+      const r = await services.entitlementEvents.ingest(source, {
+        signature: typeof req.headers["tcgi-signature"] === "string" ? req.headers["tcgi-signature"] : undefined,
+        keyId: typeof req.headers["tcgi-key-id"] === "string" ? req.headers["tcgi-key-id"] : undefined,
+      }, raw);
+      return reply.code(r.status).header("cache-control", "no-store").send(r.body);
+    });
   });
 
   return app;
