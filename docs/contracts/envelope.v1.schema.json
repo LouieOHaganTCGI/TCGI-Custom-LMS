@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tcgi.example/lms/contracts/envelope.v1.schema.json",
+  "title": "TCGI LMS event envelope v1",
+  "description": "Common envelope for inbound and outbound LMS integration events. See docs/04-event-contracts.md §1. The $id host is a placeholder, not a live URL.",
+  "type": "object",
+  "required": ["spec", "id", "type", "schema_version", "source", "idempotency_key", "occurred_at", "effective_at", "aggregate", "data"],
+  "properties": {
+    "spec": { "const": "tcgi.lms.event/1" },
+    "id": { "type": "string", "format": "uuid" },
+    "type": { "type": "string", "pattern": "^[a-z]+(\\.[a-z_]+)+$" },
+    "schema_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+    "source": { "type": "string", "pattern": "^[a-z0-9-]+:[a-z0-9-]+$", "maxLength": 100 },
+    "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "effective_at": { "type": "string", "format": "date-time" },
+    "aggregate": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "additionalProperties": false
+    },
+    "source_sequence": { "type": "integer", "minimum": 0 },
+    "data": { "type": "object" }
+  },
+  "additionalProperties": true
+}

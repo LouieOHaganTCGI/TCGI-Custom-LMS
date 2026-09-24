@@ -1,0 +1,31 @@
+{
+  "spec": "tcgi.lms.event/1",
+  "id": "0b8f1a2e-6d1c-4c1e-9a55-0f5e2b7c9d01",
+  "type": "entitlement.purchase_completed",
+  "schema_version": "1.0",
+  "source": "woocommerce:tcgi-store-staging",
+  "idempotency_key": "wc-order-SYN1001-line-1-paid",
+  "occurred_at": "2027-02-15T10:00:05Z",
+  "effective_at": "2027-02-15T10:00:00Z",
+  "aggregate": {
+    "type": "commerce_line",
+    "id": "SYN1001:1"
+  },
+  "source_sequence": 1,
+  "data": {
+    "external_order_id": "SYN1001",
+    "external_line_id": "1",
+    "learner": {
+      "idp_issuer": "https://idp.sandbox.invalid",
+      "idp_subject": "synthetic-subject-0001",
+      "commerce_customer_id": "SYN-C-42",
+      "email": "learner.one@example.test"
+    },
+    "product": {
+      "external_product_id": "SYN-PROD-FOUNDATION-01"
+    },
+    "action": "grant",
+    "effective_at": "2027-02-15T10:00:00Z",
+    "quantity": 1
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tcgi.example/lms/contracts/learning-events.v1.schema.json",
+  "title": "Outbound learning events v1 (LMS -> HubSpot and other subscribers)",
+  "description": "See docs/04-event-contracts.md §3–4. Destination field mapping is DEC-08 / DEC-24; only allow-listed fields leave the LMS.",
+  "allOf": [
+    { "$ref": "envelope.v1.schema.json" },
+    {
+      "oneOf": [
+        { "properties": { "type": { "const": "enrolment.created" }, "data": { "$ref": "#/$defs/enrolmentCreated" } } },
+        { "properties": { "type": { "const": "enrolment.status_changed" }, "data": { "$ref": "#/$defs/enrolmentStatusChanged" } } },
+        { "properties": { "type": { "const": "progress.milestone" }, "data": { "$ref": "#/$defs/progressMilestone" } } },
+        { "properties": { "type": { "const": "course.completed" }, "data": { "$ref": "#/$defs/courseCompleted" } } },
+        { "properties": { "type": { "const": "assessment.result_finalised" }, "data": { "$ref": "#/$defs/resultFinalised" } } },
+        { "properties": { "type": { "const": "assessment.result_corrected" }, "data": { "$ref": "#/$defs/resultCorrected" } } },
+        { "properties": { "type": { "const": "credential.status_changed" }, "data": { "$ref": "#/$defs/credentialStatusChanged" } } }
+      ]
+    }
+  ],
+  "$defs": {
+    "ref": { "type": "string", "minLength": 1 },
+    "personRef": {
+      "type": "object",
+      "required": ["person_id"],
+      "properties": {
+        "person_id": { "type": "string", "format": "uuid" },
+        "destination_match": { "type": "object", "description": "Destination matching key approved by DEC-08 (e.g. email or existing HubSpot contact id). No other PII." }
+      },
+      "additionalProperties": false
+    },
+    "enrolmentStatus": { "enum": ["active", "completed", "expired", "withdrawn"] },
+    "enrolmentCreated": {
+      "type": "object",
+      "required": ["enrolment_id", "person_ref", "organisation_ref", "course_ref", "course_revision", "access_start", "justification_type"],
+      "properties": {
+        "enrolment_id": { "type": "string", "format": "uuid" },
+        "person_ref": { "$ref": "#/$defs/personRef" },
+        "organisation_ref": { "$ref": "#/$defs/ref" },
+        "course_ref": { "$ref": "#/$defs/ref" },
+        "course_revision": { "type": "integer", "minimum": 1 },
+        "access_start": { "type": "string", "format": "date-time" },
+        "access_end": { "type": ["string", "null"], "format": "date-time" },
+        "justification_type": { "enum": ["commerce_line", "seat", "manual"] }
+      }
+    },
+    "enrolmentStatusChanged": {
+      "type": "object",
+      "required": ["enrolment_id", "old_status", "new_status"],
+      "properties": {
+        "enrolment_id": { "type": "string", "format": "uuid" },
+        "old_status": { "$ref": "#/$defs/enrolmentStatus" },
+        "new_status": { "$ref": "#/$defs/enrolmentStatus" },
+        "access_end": { "type": ["string", "null"], "format": "date-time" },
+        "reason_code": { "type": "string" }
+      }
+    },
+    "progressMilestone": {
+      "type": "object",
+      "required": ["enrolment_id", "placement_ref", "content_version_ref", "completion_status"],
+      "properties": {
+        "enrolment_id": { "type": "string", "format": "uuid" },
+        "placement_ref": { "$ref": "#/$defs/ref" },
+        "content_version_ref": { "$ref": "#/$defs/ref" },
+        "completion_status": { "enum": ["not_attempted", "incomplete", "completed", "unknown"] },
+        "success_status": { "enum": ["passed", "failed", "unknown"] }
+      }
+    },
+    "courseCompleted": {
+      "type": "object",
+      "required": ["enrolment_id", "completed_at", "completion_rule_version"],
+      "properties": {
+        "enrolment_id": { "type": "string", "format": "uuid" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "completion_rule_version": { "$ref": "#/$defs/ref" },
+        "cpd_awarded": { "type": "object", "properties": { "amount": { "type": "number", "minimum": 0 }, "unit": { "type": "string" } }, "required": ["amount", "unit"] }
+      }
+    },
+    "resultFinalised": {
+      "type": "object",
+      "required": ["result_id", "enrolment_id", "assessment_ref", "outcome", "attempt_no", "finalised_at"],
+      "properties": {
+        "result_id": { "type": "string", "format": "uuid" },
+        "enrolment_id": { "type": "string", "format": "uuid" },
+        "assessment_ref": { "$ref": "#/$defs/ref" },
+        "outcome": { "enum": ["pass", "fail", "withheld"] },
+        "score": { "type": ["number", "null"] },
+        "classification": { "type": ["string", "null"], "description": "Values defined only by DEC-16." },
+        "attempt_no": { "type": "integer", "minimum": 1 },
+        "finalised_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "resultCorrected": {
+      "type": "object",
+      "required": ["result_id", "correction_id", "old", "new", "reason_code"],
+      "properties": {
+        "result_id": { "type": "string", "format": "uuid" },
+        "correction_id": { "type": "string", "format": "uuid" },
+        "old": { "type": "object" },
+        "new": { "type": "object" },
+        "reason_code": { "type": "string" }
+      }
+    },
+    "credentialStatusChanged": {
+      "type": "object",
+      "required": ["credential_id", "result_id", "provider", "state"],
+      "properties": {
+        "credential_id": { "type": "string", "format": "uuid" },
+        "result_id": { "type": "string", "format": "uuid" },
+        "provider": { "const": "accredible" },
+        "state": { "enum": ["requested", "issued", "revoked", "failed"] },
+        "external_url": { "type": ["string", "null"], "format": "uri" },
+        "acknowledged_at": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "allOf": [
+        { "if": { "properties": { "state": { "const": "issued" } } }, "then": { "required": ["acknowledged_at", "external_url"], "properties": { "acknowledged_at": { "type": "string" }, "external_url": { "type": "string" } } } }
+      ]
+    }
+  }
+}

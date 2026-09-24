@@ -1,0 +1,21 @@
+{
+  "spec": "tcgi.lms.event/1",
+  "id": "e3f4a5b6-c7d8-4e9f-8a1b-2c3d4e5f6a12",
+  "type": "assessment.result_finalised",
+  "schema_version": "1.0",
+  "source": "tcgi-lms:staging",
+  "idempotency_key": "e3f4a5b6-c7d8-4e9f-8a1b-2c3d4e5f6a12",
+  "occurred_at": "2027-04-20T11:00:00Z",
+  "effective_at": "2027-04-20T11:00:00Z",
+  "aggregate": { "type": "result", "id": "8e000000-0000-4000-8000-000000000001" },
+  "data": {
+    "result_id": "8e000000-0000-4000-8000-000000000001",
+    "enrolment_id": "7f000000-0000-4000-8000-000000000002",
+    "assessment_ref": "SYN-ASSESSMENT-01",
+    "outcome": "pass",
+    "score": null,
+    "classification": null,
+    "attempt_no": 1,
+    "finalised_at": "2027-04-20T11:00:00Z"
+  }
+}
