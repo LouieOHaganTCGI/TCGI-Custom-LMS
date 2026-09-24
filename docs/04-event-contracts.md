@@ -1,6 +1,6 @@
 # 04 — Event contracts
 
-Status: **Draft v1 for review.** Architecture: [ADR-0006](adr/0006-integration-events.md). Machine-readable schemas: [`contracts/`](contracts/). Worked examples: [`contracts/examples/`](contracts/examples/). These are validated against the schemas by `docs/contracts/validate.py`.
+Status: **Draft v1 for review.** Architecture: [ADR-0006](adr/0006-integration-events.md). Machine-readable schemas: [`contracts/`](contracts/). Worked examples: [`contracts/examples/`](contracts/examples/). These are validated against the schemas by `npm run contracts:validate` (docs/contracts/validate.ts).
 
 The contracts define **what the LMS accepts and emits**. They don't define commerce, HubSpot or Accredible internals. Who builds the WooCommerce-side producer is **DEC-10**. The mapping to HubSpot objects is **DEC-08**. The Accredible issuance policy is **DEC-24**.
 

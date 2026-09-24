@@ -1,0 +1,63 @@
+{
+  "name": "tcgi-lms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TCGI owned LMS MVP \u2014 Phase B vertical slice",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "db:local": "bash scripts/pg-local.sh",
+    "migrate": "tsx src/cli.ts migrate",
+    "seed": "tsx src/cli.ts seed",
+    "dev": "tsx dev/dev-stack.ts",
+    "start": "node dist/src/server.js",
+    "contracts:validate": "tsx docs/contracts/validate.ts",
+    "worker": "node dist/src/cli.js worker",
+    "migrate:prod": "node dist/src/cli.js migrate",
+    "dev:restart": "bash scripts/dev-restart.sh",
+    "check": "npm run typecheck && npm run lint && npm test && npm run contracts:validate"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/formbody": "^9.0.0",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/multipart": "^10.1.2",
+    "@fastify/rate-limit": "^11.2.0",
+    "fast-xml-parser": "^5.11.1",
+    "fastify": "^5.12.5",
+    "kysely": "^0.29.6",
+    "openid-client": "^6.8.8",
+    "pg": "^8.23.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "scorm-again": "^3.3.9",
+    "yauzl": "^3.4.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "1.56.1",
+    "@types/node": "^22.20.4",
+    "@types/oidc-provider": "^9.12.1",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/yauzl": "^3.4.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "eslint": "^9.39.5",
+    "oidc-provider": "^9.12.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.1"
+  }
+}

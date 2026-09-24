@@ -1,0 +1,5 @@
+body { font-family: system-ui, Arial, sans-serif; margin: 1rem; line-height: 1.5; color: #1b1f24; }
+.banner { background: #fff4d6; border: 1px solid #8a4b00; padding: .5rem; }
+.actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+button { font: inherit; padding: .5rem 1rem; min-height: 44px; }
+.small { color: #4a5561; font-size: .9rem; }

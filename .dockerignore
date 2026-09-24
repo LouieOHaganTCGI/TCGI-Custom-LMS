@@ -1,0 +1,8 @@
+node_modules
+dist
+.pgdata
+var
+test-results
+playwright-report
+.git
+*.log

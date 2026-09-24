@@ -1,6 +1,6 @@
 # TCGI LMS: Phase A planning pack
 
-Status: **Phase A complete, awaiting senior-engineer review.** No application code has been written. **Phase B doesn't start until Boris approves the architecture and the blocking business decisions are made.**
+Status: Phase A is done, and the architecture was **accepted by Boris on 24 Sep 2026**. **Phase B is built and awaiting review**: see [phase-b/report.md](phase-b/report.md) and [phase-b/demo-script.md](phase-b/demo-script.md). Functional spec v3.0 was reconciled into [00 §E](00-assumption-register.md).
 
 Requirement baseline: [`../TCGI_LMS_MVP_Build_Brief_2027.md`](../TCGI_LMS_MVP_Build_Brief_2027.md)
 
@@ -15,7 +15,7 @@ Requirement baseline: [`../TCGI_LMS_MVP_Build_Brief_2027.md`](../TCGI_LMS_MVP_Bu
 | 6 | Migration spike plan and fallback | [06-migration-spike-plan.md](06-migration-spike-plan.md) |
 | 7 | Business decisions, with blocking dates | [07-business-decisions.md](07-business-decisions.md) |
 
-Checking the contracts: `pip install 'jsonschema[format]>=4.18' && python3 docs/contracts/validate.py`. Valid examples must pass and invalid examples must be rejected.
+Checking the contracts: `npm run contracts:validate`. Valid examples must pass and invalid examples must be rejected.
 
 ## Plan summary
 
