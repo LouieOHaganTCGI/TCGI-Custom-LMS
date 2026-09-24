@@ -1,0 +1,22 @@
+{
+  "spec": "tcgi.lms.event/1",
+  "id": "9a7d2c10-1b3e-4f5a-8c6d-2e4f6a8b0c03",
+  "type": "entitlement.access_extended",
+  "schema_version": "1.0",
+  "source": "woocommerce:tcgi-store-staging",
+  "idempotency_key": "wc-order-SYN2002-line-1-ext-E1",
+  "occurred_at": "2027-06-01T09:00:00Z",
+  "effective_at": "2027-06-01T09:00:00Z",
+  "aggregate": { "type": "commerce_line", "id": "SYN2002:1" },
+  "source_sequence": 3,
+  "data": {
+    "external_order_id": "SYN2002",
+    "external_line_id": "1",
+    "learner": { "commerce_customer_id": "SYN-C-77", "email": "learner.two@example.test" },
+    "product": { "external_product_id": "SYN-PROD-DIPLOMA-01" },
+    "action": "extend",
+    "effective_at": "2027-06-01T09:00:00Z",
+    "access_end": "2027-12-01T09:00:00Z",
+    "reason_code": "paid_extension"
+  }
+}

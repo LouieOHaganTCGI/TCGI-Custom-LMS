@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tcgi.example/lms/contracts/entitlement.v1.schema.json",
+  "title": "Inbound entitlement event v1 (commerce -> LMS)",
+  "description": "Envelope plus entitlement data. See docs/04-event-contracts.md §2. Allowed reason codes are provisional pending DEC-11.",
+  "allOf": [
+    { "$ref": "envelope.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "entitlement.purchase_completed",
+            "entitlement.manual_granted",
+            "entitlement.refunded",
+            "entitlement.cancelled",
+            "entitlement.access_extended",
+            "entitlement.suspended",
+            "entitlement.reinstated"
+          ]
+        },
+        "aggregate": {
+          "type": "object",
+          "properties": { "type": { "const": "commerce_line" } }
+        },
+        "data": { "$ref": "#/$defs/entitlementData" }
+      }
+    },
+    {
+      "$comment": "type <-> action consistency",
+      "oneOf": [
+        { "properties": { "type": { "enum": ["entitlement.purchase_completed", "entitlement.manual_granted"] }, "data": { "properties": { "action": { "const": "grant" } }, "required": ["access_end"] } } },
+        { "properties": { "type": { "enum": ["entitlement.refunded", "entitlement.cancelled"] }, "data": { "properties": { "action": { "const": "revoke" } }, "required": ["reason_code"] } } },
+        { "properties": { "type": { "const": "entitlement.access_extended" }, "data": { "properties": { "action": { "const": "extend" } }, "required": ["access_end", "reason_code"] } } },
+        { "properties": { "type": { "const": "entitlement.suspended" }, "data": { "properties": { "action": { "const": "suspend" } }, "required": ["reason_code"] } } },
+        { "properties": { "type": { "const": "entitlement.reinstated" }, "data": { "properties": { "action": { "const": "reinstate" } } } } }
+      ]
+    }
+  ],
+  "$defs": {
+    "entitlementData": {
+      "type": "object",
+      "required": ["external_order_id", "external_line_id", "learner", "product", "action", "effective_at"],
+      "properties": {
+        "external_order_id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "external_line_id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "learner": {
+          "type": "object",
+          "required": ["commerce_customer_id", "email"],
+          "properties": {
+            "idp_issuer": { "type": "string" },
+            "idp_subject": { "type": "string" },
+            "commerce_customer_id": { "type": "string", "minLength": 1 },
+            "email": { "type": "string", "format": "email" }
+          },
+          "dependentRequired": { "idp_subject": ["idp_issuer"], "idp_issuer": ["idp_subject"] }
+        },
+        "product": {
+          "type": "object",
+          "required": ["external_product_id"],
+          "properties": {
+            "external_product_id": { "type": "string", "minLength": 1 },
+            "external_variant_id": { "type": "string" }
+          }
+        },
+        "action": { "enum": ["grant", "revoke", "extend", "suspend", "reinstate"] },
+        "effective_at": { "type": "string", "format": "date-time" },
+        "access_end": { "type": ["string", "null"], "format": "date-time" },
+        "quantity": { "type": "integer", "minimum": 1 },
+        "reason_code": {
+          "enum": ["refund_full", "refund_partial", "order_cancelled", "chargeback", "instalment_overdue", "goodwill_extension", "paid_extension", "manual"]
+        },
+        "source_actor": { "type": "string", "maxLength": 100 }
+      }
+    }
+  }
+}
