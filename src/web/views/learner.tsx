@@ -55,7 +55,7 @@ function CourseCard({ e, now }: { e: EnrolmentSummary; now: Date }) {
       <div className="card-foot">
         {done ? <StatusBadge status="completed" label={`Completed ${fmtDate(e.completedAt)}`} /> : <AccessNote end={e.accessEnd} now={now} />}
         <a className="button small secondary" href={`/learn/enrolments/${e.enrolmentId}`}>
-          {done ? "Review" : e.placementsCompleted > 0 ? "Continue" : "Start"}<span className="visually-hidden">: {e.courseTitle}</span>
+          {done ? "Review" : e.placementsStarted > 0 ? "Resume" : "Start"}<span className="visually-hidden">: {e.courseTitle}</span>
         </a>
       </div>
     </li>
@@ -77,7 +77,8 @@ export function DashboardPage(props: { user: NavUser; enrolments: EnrolmentSumma
           <h2 id="next-heading">{next.courseTitle}</h2>
           <div className="hero-meta"><span>{TIER_LABEL[next.tier] ?? next.tier}</span><span>{next.organisationName}</span></div>
           <ProgressBar done={next.placementsCompleted} total={next.placementsTotal} label={`Progress in ${next.courseTitle}`} />
-          <a className="button" href={`/learn/enrolments/${next.enrolmentId}`}>{next.placementsCompleted > 0 ? "Resume course" : "Start course"}</a>
+          {next.placementsStarted > 0 && next.placementsCompleted === 0 ? <p>You've started this course. Pick up where you left off.</p> : null}
+          <a className="button" href={`/learn/enrolments/${next.enrolmentId}`}>{next.placementsStarted > 0 ? "Resume course" : "Start course"}</a>
         </section>
       ) : enrolments.length === 0 && eligible.length > 0 ? (
         <p className="lede">Your courses are ready. Enrol in one below to get started.</p>

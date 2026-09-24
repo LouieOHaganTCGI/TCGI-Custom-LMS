@@ -31,6 +31,10 @@ describe("save and restore (SCORM 1.2)", () => {
     const resumed = await state(again.attemptId, again.contentCookie);
     expect(resumed.cmi.core).toMatchObject({ entry: "resume", lesson_location: "screen-2", lesson_status: "incomplete" });
     expect(resumed.cmi.suspend_data).toBe("{\"screen\":2}");
+    // The dashboard reflects a started-but-not-completed course as "Resume", not "Start".
+    const dash = await h.app.inject({ method: "GET", url: "/learn", headers: { cookie: login.cookie } });
+    expect(dash.body).toContain("Resume course");
+    expect(dash.body).not.toContain(">Start course<");
   });
 
   it("stores every raw commit append-only, in order, with a hash", async () => {

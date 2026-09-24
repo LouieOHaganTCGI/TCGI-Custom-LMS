@@ -22,6 +22,8 @@ export interface EnrolmentSummary {
   completedAt: Date | null;
   placementsTotal: number;
   placementsCompleted: number;
+  /** Lessons with any saved attempt (started, even if not completed), so the UI can say "Resume". */
+  placementsStarted: number;
   organisationName: string;
 }
 
@@ -82,11 +84,12 @@ export class EnrolmentService {
               ),
             )
             .as("placementsCompleted"),
+          eb.selectFrom("attempt as a").select(sql<string>`count(distinct a.placement_id)`.as("n")).whereRef("a.enrolment_id", "=", "en.id").as("placementsStarted"),
         ])
         .where("en.person_id", "=", ctx.personId)
         .orderBy("en.enrolled_at", "desc")
         .execute();
-      return rows.map((r) => ({ ...r, placementsTotal: Number(r.placementsTotal ?? 0), placementsCompleted: Number(r.placementsCompleted ?? 0) }));
+      return rows.map((r) => ({ ...r, placementsTotal: Number(r.placementsTotal ?? 0), placementsCompleted: Number(r.placementsCompleted ?? 0), placementsStarted: Number(r.placementsStarted ?? 0) }));
     });
   }
 
