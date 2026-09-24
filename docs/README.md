@@ -1,6 +1,6 @@
 # TCGI LMS: Phase A planning pack
 
-Status: Phase A is done, and the architecture was **accepted by Boris on 24 Sep 2026**. **Phase B is built and awaiting review**: see [phase-b/report.md](phase-b/report.md) and [phase-b/demo-script.md](phase-b/demo-script.md). Functional spec v3.0 was reconciled into [00 §E](00-assumption-register.md).
+Status: Phase A is done, and the architecture was **accepted by Boris on 24 Sep 2026**. Phase B was **accepted**. The next batch (UX foundation, S4 commerce events, S5 enterprise, CPD) is **awaiting review**: see [slices/report-ux-s4-s5-cpd.md](slices/report-ux-s4-s5-cpd.md) and parts 1 and 2 of [phase-b/demo-script.md](phase-b/demo-script.md). Functional spec v3.0 was reconciled into [00 §E](00-assumption-register.md).
 
 Requirement baseline: [`../TCGI_LMS_MVP_Build_Brief_2027.md`](../TCGI_LMS_MVP_Build_Brief_2027.md)
 

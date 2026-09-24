@@ -4,8 +4,8 @@ The TCGI-owned learning platform MVP, targeting a controlled Q3 2027 rollout whi
 The requirement baseline is [`TCGI_LMS_MVP_Build_Brief_2027.md`](TCGI_LMS_MVP_Build_Brief_2027.md). Planning and architecture are in
 [`docs/`](docs/README.md).
 
-**Status:** Phase A (planning) is done, and the architecture was accepted on 24 Sep 2026. **Phase B, the first vertical slice, is built and awaiting review.**
-Read [`docs/phase-b/report.md`](docs/phase-b/report.md) for exactly what works, what is simulated and what is unverified.
+**Status:** Phase A and Phase B are accepted. **UX foundation, S4 (signed purchase and refund events), S5 (enterprise manager portal, seats, invitations) and CPD are built and awaiting review.**
+See [`docs/slices/report-ux-s4-s5-cpd.md`](docs/slices/report-ux-s4-s5-cpd.md) for what works, what is provisional and what is still missing.
 
 Out of scope, by design: checkout and payments (WooCommerce and Stripe), membership and community (Hivebrite), the identity provider
 (miniOrange), historical records (HubSpot), and certificate issuance (Accredible).
@@ -26,8 +26,9 @@ Everything local is synthetic: fictional people (`*@example.test`), synthetic SC
 ## Checks
 
 ```bash
-npm run check        # typecheck + lint + 106 unit/integration tests (real Postgres) + contract schemas
-npm run test:e2e     # Playwright: full learner journey (SCORM 1.2 and 2004), isolation, hostile package, a11y, mobile
+npm run check        # typecheck + lint + 156 unit/integration tests (real Postgres) + contract schemas
+npm run test:e2e     # Playwright: learner, manager and commerce journeys, isolation, hostile package, axe on 16 pages, mobile
+npx tsx dev/commerce-sim.ts purchase --learner learner-ent-b-1 --product SYN-PROD-PATHWAY-01 --order SIM-1   # local commerce simulator
 npm run build        # compiled JS in dist/ (docker build . for the image)
 ```
 

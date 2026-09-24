@@ -65,3 +65,35 @@ Open http://localhost:3000 in a private window. The console banner confirms the 
 ```bash
 npm run test:e2e          # includes the full journey above for SCORM 1.2 and 2004
 ```
+
+---
+
+# Part 2 demo: enterprise manager, purchase and refund, CPD (about 15 minutes)
+
+Synthetic people added for this part:
+- **Eoin Manager (synthetic)**: manager of Synthetic Enterprise A.
+- **Grace Newstarter** and **Hugh Newstarter**: IdP-only users with *no* LMS account, for the invitation demo.
+
+## 8. Manager portal (ENT-01 to ENT-03): 5 min
+1. Sign in as **Eoin**. Open **Manage team**. Show seats in use against the limit, team progress, the agreement card, and **Export team progress (CSV)**.
+2. **Invite a learner**: "Grace Newstarter". Copy the one-time link. *Email delivery is pending DEC-25.*
+3. In a new private window, open the link. **Accept and sign in** as *Grace Newstarter*. The welcome message confirms her account is linked.
+4. Back as Eoin, **Assign a course** to Grace. Her seat shows "Seat active", and seats in use goes up by one.
+5. As Grace, enrol and complete the lesson. Then open **CPD**, which shows the award. As Eoin, the team table shows *Completed* and her CPD.
+6. *Isolation talking point:* Eoin can't open Enterprise B's team, even by editing the URL, and never sees an employee's personal B2C courses.
+
+## 9. Purchase and refund (INT-01, INT-02): 4 min
+```bash
+npx tsx dev/commerce-sim.ts purchase --learner learner-ent-b-1 --product SYN-PROD-PATHWAY-01 --order SIM-1
+```
+1. As **Ciara**, the pathway appears under "Available to you". Enrol.
+2. `npx tsx dev/commerce-sim.ts refund --learner learner-ent-b-1 --product SYN-PROD-PATHWAY-01 --order SIM-1`, then reload the course page. It shows **Withdrawn**, and launching is disabled. Progress is kept.
+3. As **Dana (admin)**: open **Purchase and refund events**. Both events are *Processed*, and the resulting access shows *Revoked*.
+4. `... partial-refund ...` is **held** with the reason `partial_refund_rule_pending_DEC-11`, and access is unchanged. That's the point: rules nobody has decided aren't guessed.
+
+## 10. CPD and transcript (LRN-05): 2 min
+- **CPD** shows totals by calendar year and in total, with a year filter. **View transcript** gives a print-ready page ("Print or save as PDF"). **Download CSV**.
+- Admin → **Content and courses**: set a course's CPD value. Existing awards are unchanged (a snapshot).
+
+## 11. Operations overview (OPS-01): 1 min
+- Admin → **Overview** shows live counts, plus held events and dead letters flagged "Needs attention".
